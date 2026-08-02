@@ -11,7 +11,9 @@ class DatasetService:
     ALLOWED_EXTENSIONS = {".csv", ".xlsx", ".xls"}
 
     def __init__(self):
-        self.upload_dir = Path("uploads")
+        base_dir = Path(__file__).resolve().parent.parent
+
+        self.upload_dir = base_dir / "uploads"
         self.upload_dir.mkdir(exist_ok=True)
 
     async def upload_dataset(self, file: UploadFile) -> UploadResponse:
@@ -45,7 +47,19 @@ class DatasetService:
 
     def get_dataset_path(self, dataset_id: str) -> Path:
 
+        print("\n========== DATASET DEBUG ==========")
+        print("Dataset ID:", dataset_id)
+        print("Upload directory:", self.upload_dir.resolve())
+        print("Upload directory exists:", self.upload_dir.exists())
+
+        files = list(self.upload_dir.glob("*"))
+        print("Files in upload directory:")
+        for file in files:
+            print(f"  - {file.name}")
+
         matches = list(self.upload_dir.glob(f"{dataset_id}.*"))
+        print("Matches:", matches)
+        print("===================================\n")
 
         if not matches:
             raise HTTPException(

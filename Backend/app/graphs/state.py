@@ -16,3 +16,9 @@ class GraphState(TypedDict):
 
     # Planner
     analysis_plan: AnalysisPlan | None
+
+    # Task Management
+    current_task: str | None
+    remaining_tasks: list[str]
+    completed_tasks: list[str]
+    execution_logs: list[str]

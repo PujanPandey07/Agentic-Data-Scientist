@@ -1,228 +1,311 @@
-# Agentic-Data-Scientist
-> An AI-powered data analysis platform that uses agentic workflows to clean, analyse, visualize, and explain datasets.
+# Agentic Data Scientist
 
-## Overview
-
-AI Data Scientist is an end-to-end agentic AI application designed to emulate the workflow of a junior data scientist. Instead of simply answering questions about a dataset, the system plans analyses, performs exploratory data analysis (EDA), generates visualizations, selects appropriate statistical methods, trains machine learning models, and produces comprehensive reports.
-
-The primary goal of this project is to explore modern LLM engineering concepts while building a production-style AI application from the ground up.
+> An AI-powered data analysis platform that uses LangGraph-based agentic workflows to inspect, clean, analyze, visualize, model, and explain datasets.
 
 ---
 
-## Project Goals
+# Overview
 
-This project aims to:
+Agentic Data Scientist is an end-to-end AI application designed to emulate the workflow of a junior data scientist.
 
-* Build a modular agentic AI system using LangGraph.
-* Automate the complete data analysis workflow.
-* Combine deterministic Python pipelines with LLM reasoning.
-* Learn production-grade LLM application architecture.
-* Explore modern AI engineering concepts through a real-world project.
+Instead of simply answering questions about a dataset, the system builds an execution plan, dynamically executes data analysis tasks, trains machine learning models, evaluates results, and generates comprehensive reports.
+
+The project is also a hands-on exploration of modern LLM engineering concepts, including agentic workflows, LangGraph, structured outputs, state management, and production-ready AI application architecture.
 
 ---
 
-## Planned Features
+# Project Goals
 
-### Data Analysis
-
-* Dataset upload (CSV, Excel, JSON)
-* Automatic dataset profiling
-* Data cleaning suggestions
-* Exploratory Data Analysis (EDA)
-* Statistical analysis
-* Interactive visualizations
-* Machine Learning model selection
-* Model evaluation and comparison
-* Automated report generation
-
-### AI Capabilities
-
-* Agentic workflows using LangGraph
-* Multi-agent architecture
-* Planning and reasoning
-* Tool calling
-* Structured outputs with Pydantic
-* Reflection and self-improvement
-* Human-in-the-loop (HITL)
-* Long-term memory
-* Retrieval-Augmented Generation (RAG)
-* Model Context Protocol (MCP) integration
-* Streaming responses
-* Asynchronous execution
+- Build a modular AI-powered data analysis platform.
+- Learn production-grade AI application architecture.
+- Combine deterministic Python pipelines with LLM reasoning.
+- Build reusable services for data science workflows.
+- Explore LangGraph through a real-world project.
 
 ---
 
-## Planned Architecture
+# Current Architecture
 
 ```text
-                        User
-
-                          │
-
-                    Coordinator Agent
-
-                          │
-
- ┌────────────────────────────────────────────────────┐
- │                                                    │
- │  Dataset Agent                                     │
- │  Data Cleaning Agent                               │
- │  EDA Agent                                         │
- │  Visualization Agent                               │
- │  Statistics Agent                                  │
- │  Machine Learning Agent                            │
- │  Insight Agent                                     │
- │  Report Generation Agent                           │
- │                                                    │
- └────────────────────────────────────────────────────┘
-
-                          │
-
-                    Final Report
+                           User
+                             │
+                             ▼
+                     FastAPI Backend
+                             │
+                             ▼
+                    Dataset Upload API
+                             │
+                             ▼
+                     Dataset Inspector
+                             │
+                             ▼
+                      Planner Agent (LLM)
+                             │
+                    Generates Analysis Plan
+                             │
+                             ▼
+                  LangGraph Execution Engine
+                             │
+                             ▼
+                     Execution Queue
+                             │
+                             ▼
+                      Dynamic Router
+                             │
+        ┌─────────────────────────────────────────┐
+        │                                         │
+        │ Cleaning Node                           │
+        │ EDA Node                                │
+        │ Visualization Node                      │
+        │ Feature Engineering Node                │
+        │ Training Node                           │
+        │ Evaluation Node                         │
+        │ Reporting Node                          │
+        │                                         │
+        └─────────────────────────────────────────┘
+                             │
+                             ▼
+                    Python Service Layer
+                             │
+        ┌─────────────────────────────────────────┐
+        │ Dataset Service                         │
+        │ Cleaning Service                        │
+        │ EDA Service                             │
+        │ Visualization Service                   │
+        │ Model Training Service                  │
+        │ Evaluation Service                      │
+        └─────────────────────────────────────────┘
+                             │
+                             ▼
+                        Final Report
 ```
 
 ---
 
-## Technology Stack
+# Current Progress
+
+## Completed
 
 ### Backend
 
-* Python
-* FastAPI
-* LangGraph
-* LangChain
+- FastAPI project setup
+- Modular project structure
+- Dataset upload endpoint
+- CSV and Excel loading
+- Dataset inspection
+- Dataset metadata extraction
+
+### LangGraph
+
+- Graph state design
+- Planner agent
+- Structured LLM outputs using Pydantic
+- Execution queue
+- Dynamic task routing
+- Conditional workflow execution
+- Reusable execution service
+- Workflow orchestration
 
 ### AI
 
-* Google Gemini
-* Groq
-
-### Data Science
-
-* Pandas
-* NumPy
-* Scikit-learn
-* Matplotlib
-* Plotly
-
-### Frontend
-
-* React
-* Tailwind CSS
-
-### Database & Storage
-
-* PostgreSQL
-* FAISS / Vector Database
+- Planner Agent
+- Structured planning outputs
+- Task generation based on user intent and dataset summary
 
 ---
 
-## Development Roadmap
+# Planned Features
 
-### Phase 1 — Foundation
+## Data Processing
 
-* [ ] Project setup
-* [ ] FastAPI backend
-* [ ] React frontend
-* [ ] File upload system
+- Data cleaning
+- Missing value handling
+- Duplicate removal
+- Data type correction
 
-### Phase 2 — Dataset Understanding
+## Exploratory Data Analysis
 
-* [ ] Dataset profiling
-* [ ] Metadata extraction
-* [ ] Automatic column detection
+- Descriptive statistics
+- Correlation analysis
+- Distribution analysis
+- Dataset insights
 
-### Phase 3 — Planning Agent
+## Visualization
 
-* [ ] Task planning
-* [ ] Workflow generation
-* [ ] Agent routing
+- Histograms
+- Box plots
+- Correlation heatmaps
+- Scatter plots
+- Target analysis
 
-### Phase 4 — Data Analysis
+## Machine Learning
 
-* [ ] Data cleaning
-* [ ] Exploratory Data Analysis
-* [ ] Visualization generation
-* [ ] Statistical analysis
+- Feature engineering
+- Model selection
+- Model training
+- Hyperparameter tuning
+- Model evaluation
+- Explainability
 
-### Phase 5 — Machine Learning
+## Reporting
 
-* [ ] Automatic model selection
-* [ ] Model training
-* [ ] Model evaluation
-* [ ] Feature importance
-
-### Phase 6 — Advanced AI Features
-
-* [ ] Reflection
-* [ ] Memory
-* [ ] RAG
-* [ ] MCP
-* [ ] HITL
-* [ ] Streaming
-* [ ] Async execution
-
-### Phase 7 — Production
-
-* [ ] Authentication
-* [ ] Persistent state
-* [ ] Docker deployment
-* [ ] Documentation
+- Automated reports
+- AI-generated insights
+- Recommendations
+- Exportable summaries
 
 ---
 
-## Repository Structure
+# Technology Stack
+
+## Backend
+
+- Python
+- FastAPI
+- LangGraph
+- LangChain
+
+## AI
+
+- Google Gemini
+- Groq
+
+## Data Science
+
+- Pandas
+- NumPy
+- Scikit-learn
+- Matplotlib
+- Plotly
+
+## Frontend
+
+- React
+- Tailwind CSS
+
+## Storage
+
+- PostgreSQL
+- FAISS (planned)
+
+---
+
+# Development Roadmap
+
+## Phase 1 — Foundation ✅
+
+- Project setup
+- FastAPI backend
+- Dataset upload
+- Dataset loading
+- Dataset inspection
+
+## Phase 2 — Workflow Engine ✅
+
+- Graph state
+- Planner agent
+- Execution queue
+- Dynamic router
+- LangGraph workflow
+
+## Phase 3 — Data Processing (In Progress)
+
+- Data cleaning
+- EDA
+- Visualization
+- Statistical analysis
+
+## Phase 4 — Machine Learning
+
+- Feature engineering
+- Model selection
+- Model training
+- Evaluation
+
+## Phase 5 — AI Enhancements
+
+- Insight generation
+- Report generation
+- Reflection
+- Human-in-the-loop
+- Memory
+- RAG
+- MCP
+- Streaming
+
+## Phase 6 — Production
+
+- Authentication
+- Persistent state
+- Docker deployment
+- Testing
+- Documentation
+
+---
+
+# Repository Structure
 
 ```text
-AI-Data-Scientist/
+Agentic-Data-Scientist/
 
 ├── backend/
+│   ├── app/
+│   ├── uploads/
+│   └── requirements.txt
+│
 ├── frontend/
-├── docs/
-├── README.md
-└── docker-compose.yml
+│
+├── Docs/
+│
+├── docker-compose.yml
+│
+└── README.md
 ```
 
 ---
 
-## Learning Objectives
+# Learning Objectives
 
-This project is being built as a practical exploration of modern AI engineering concepts, including:
+This project serves as a practical exploration of:
 
-* Agentic AI
-* LangGraph
-* State Management
-* Multi-Agent Systems
-* Tool Calling
-* Pydantic
-* Streaming
-* Async Programming
-* Human-in-the-loop (HITL)
-* Retrieval-Augmented Generation (RAG)
-* Model Context Protocol (MCP)
-* Production AI Architecture
-
----
-
-## Current Status
-
-🚧 **Project initialization in progress**
-
-Current milestone:
-
-* Repository setup
-* Initial architecture
-* Development roadmap
+- Agentic AI
+- LangGraph
+- State Management
+- Workflow Orchestration
+- LLM Planning
+- Structured Outputs
+- Pydantic
+- FastAPI
+- Async Programming
+- Retrieval-Augmented Generation (RAG)
+- Human-in-the-loop (HITL)
+- Production AI Architecture
 
 ---
 
-## Contributing
+# Current Status
 
-This project is currently under active development and is primarily intended as a learning and portfolio project. Suggestions, feedback, and discussions are welcome.
+🚧 **Active Development**
+
+### Current Milestone
+
+Building the data processing pipeline.
+
+Completed:
+
+- Dataset upload
+- Dataset inspection
+- Planner agent
+- Dynamic workflow engine
+
+Next:
+
+- Cleaning pipeline
+- EDA pipeline
+- Visualization pipeline
 
 ---
 
-## License
+# License
 
 This project is licensed under the MIT License.
-

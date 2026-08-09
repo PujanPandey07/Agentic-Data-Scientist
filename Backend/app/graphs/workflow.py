@@ -1,6 +1,6 @@
 from langgraph.graph import START, END, StateGraph
 
-from graphs.nodes import dataset_node, planner_node, initialize_execution_node, complete_dummy_task, router, cleaning_node, eda_node, visualization_node, feature_engineering_node, training_node, evaluation_node, reporting_node, route_task
+from graphs.nodes import dataset_node, planner_node, initialize_execution_node, advance_execution, router, cleaning_node, eda_node, visualization_node, feature_engineering_node, training_node, evaluation_node, reporting_node, route_task, planner_agent
 
 from graphs.state import GraphState
 

@@ -21,7 +21,28 @@
   Dataset → Planner → Execution Initialization → Router → Dynamic Task Nodes.
 - Successfully established the execution engine that will drive all future AI workflow stages.
 
-### Next Steps
+## Milestone: Agentic Workflow Foundation
+
+Implemented:
+
+- Dataset loading through DatasetService
+- Dataset inspection
+- DatasetSummary
+- Planner Agent
+- Pydantic AnalysisPlan
+- LangGraph GraphState
+- Execution queue
+- Conditional task routing
+- ExecutionService
+- CleaningService
+- Duplicate removal
+- Cleaning report persistence
+
+Validation:
+
+Iris dataset:
+150 rows → 147 rows
+3 duplicate rows removed
 
 - Replace dummy cleaning node with a production implementation.
 - Build EDA service.

@@ -114,13 +114,20 @@ async def cleaning_node(state):
     state["dataframe"] = cleaned_dataframe
     state["cleaning_report"] = report
 
-    print("\nCLEANING REPORT FROM SERVICE:")
-    print(report)
+    print("REPORT IN STATE:", state.get("cleaning_report"))
 
     return advance_execution(
         state,
         "cleaning",
         "Dataset cleaning completed successfully."
+    )
+
+
+async def eda_node(state):
+    return advance_execution(
+        state,
+        "eda",
+        "Exploratory data analysis completed successfully."
     )
 
 

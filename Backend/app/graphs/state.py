@@ -20,6 +20,9 @@ class GraphState(TypedDict):
     # Cleaning
     cleaning_report: dict | None
 
+    # EDA
+    eda_report: dict | None
+
     # Task Management
     current_task: str | None
     remaining_tasks: list[str]

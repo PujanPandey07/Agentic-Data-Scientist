@@ -21,54 +21,39 @@ The architecture is designed around a workflow-first approach. Instead of beginn
 
 # High-Level Workflow
 
-```text
-                        User
-                          │
-                          ▼
-            Upload Dataset & Define Objective
-                          │
-                          ▼
-              Understand the User's Goal
-                          │
-                          ▼
-                Inspect the Uploaded Dataset
-                          │
-                          ▼
-                Generate Dataset Summary
-                          │
-                          ▼
-                 Create an Analysis Plan
-                          │
-                          ▼
-              Data Cleaning & Preprocessing
-                          │
-                          ▼
-          Exploratory Data Analysis (EDA)
-                          │
-                          ▼
-              Feature Engineering (Optional)
-                          │
-                          ▼
-             Select Machine Learning Approach
-                          │
-                          ▼
-                Train Candidate Models
-                          │
-                          ▼
-             Evaluate & Compare Models
-                          │
-                          ▼
-               Interpret Model Results
-                          │
-                          ▼
-      Generate Insights & Recommendations
-                          │
-                          ▼
-                Generate Final Report
-                          │
-                          ▼
-            Answer Follow-up User Questions
-```
+````textUser
+ │
+ ├── Query
+ └── Dataset
+       │
+       ▼
+ Dataset Service
+       │
+       ▼
+ Dataset Inspector
+       │
+       ▼
+    GraphState
+       │
+       ▼
+ Planner Agent
+       │
+       ▼
+ AnalysisPlan
+       │
+       ▼
+ Execution Initialization
+       │
+       ▼
+     Router
+       │
+       ├── Cleaning
+       ├── EDA
+       ├── Visualization
+       ├── Feature Engineering
+       ├── Training
+       ├── Evaluation
+       └── Reporting```
 
 ---
 
@@ -288,3 +273,4 @@ The following capabilities are intentionally planned for future milestones:
 ---
 
 **Note:** This document defines the logical workflow of the AI Data Scientist. Implementation details such as graph design, agents, tools, state management, and APIs will be documented separately as the project evolves.
+````

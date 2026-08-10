@@ -17,8 +17,14 @@ class GraphState(TypedDict):
     # Planner
     analysis_plan: AnalysisPlan | None
 
+    # Cleaning
+    cleaning_report: dict | None
+
+    # EDA
+    eda_report: dict | None
+
     # Task Management
     current_task: str | None
     remaining_tasks: list[str]
     completed_tasks: list[str]
-    execution_logs: list[str]
+    execution_logs: list[dict]

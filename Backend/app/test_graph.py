@@ -23,6 +23,9 @@ async def main():
     print("\n========== CLEANING REPORT ==========\n")
     print(result.get("cleaning_report"))
 
+    print("\n========== EDA REPORT ==========")
+    print(result.get("eda_report"))
+
     print("\n========== COMPLETED TASKS ==========\n")
     print(result.get("completed_tasks"))
 

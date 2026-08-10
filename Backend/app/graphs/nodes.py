@@ -1,4 +1,5 @@
 from langgraph.graph import END
+from services.eda_service import eda_service
 from services.cleaning_service import cleaning_service
 from agents.planner import planner_agent
 from services.dataset_service import dataset_service
@@ -124,14 +125,13 @@ async def cleaning_node(state):
 
 
 async def eda_node(state):
-    return advance_execution(
-        state,
-        "eda",
-        "Exploratory data analysis completed successfully."
-    )
+    dataframe = state.get("dataframe")
+    if dataframe is None:
+        raise ValueError("Dataframe not found in graph state.")
+    eda_report = eda_service.analyze(dataframe)
 
+    state["eda_report"] = eda_report
 
-async def eda_node(state):
     return advance_execution(
         state,
         "eda",

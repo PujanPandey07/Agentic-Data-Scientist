@@ -1,7 +1,7 @@
 from typing import TypedDict
 import pandas as pd
 
-from Backend.app.schema.visualization_plan import VisualizationPlanResponse
+from schema.visualization_plan import VisualizationPlanResponse
 from schema.analysis_plan import AnalysisPlan
 from schema.dataset_summary import DatasetSummary
 
@@ -32,3 +32,4 @@ class GraphState(TypedDict):
 
     # Visualization
     visualization_plan: VisualizationPlanResponse | None
+    visualizations: list[dict]

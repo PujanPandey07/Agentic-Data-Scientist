@@ -1,3 +1,4 @@
+from services.visualization_service import visualization_service
 from langgraph.graph import END
 from services.eda_service import eda_service
 from services.cleaning_service import cleaning_service
@@ -93,6 +94,9 @@ def route_task(state):
     if task == "training":
         return "training"
 
+    if task == "visualization":
+        return "visualization"
+
     if task == "evaluation":
         return "evaluation"
 
@@ -167,10 +171,32 @@ async def visualization_planner_node(state):
 
 
 async def visualization_node(state):
+
+    dataframe = state.get("dataframe")
+
+    if dataframe is None:
+        raise ValueError(
+            "Dataframe not found in graph state."
+        )
+
+    visualization_plan = state.get("visualization_plan")
+
+    if visualization_plan is None:
+        raise ValueError(
+            "Visualization plan not found in graph state."
+        )
+
+    visualizations = visualization_service.generate_visualizations(
+        dataframe=dataframe,
+        visualization_plan=visualization_plan,
+    )
+
+    state["visualizations"] = visualizations
+
     return advance_execution(
         state,
         "visualization",
-        "Data visualization completed successfully."
+        "Visualizations generated successfully."
     )
 
 

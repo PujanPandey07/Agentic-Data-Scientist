@@ -26,6 +26,12 @@ async def main():
     print("\n========== EDA REPORT ==========")
     print(result.get("eda_report"))
 
+    print("\n========== VISUALIZATION PLAN ==========")
+    print(result.get("visualization_plan"))
+
+    print("\n========== GENERATED VISUALIZATIONS ==========")
+    print(result.get("visualizations"))
+
     print("\n========== COMPLETED TASKS ==========\n")
     print(result.get("completed_tasks"))
 

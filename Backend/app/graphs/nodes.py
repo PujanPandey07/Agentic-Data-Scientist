@@ -6,6 +6,7 @@ from services.dataset_service import dataset_service
 from analysis.inspector import dataset_inspector
 from services.cleaning_service import CleaningService
 from services.executiopn_service import execution_service
+from agents.visualization_planner import visualization_planner_agent
 
 
 def advance_execution(state, task_name: str, message: str):
@@ -137,6 +138,32 @@ async def eda_node(state):
         "eda",
         "Exploratory data analysis completed successfully."
     )
+
+
+async def visualization_planner_node(state):
+
+    user_query = state.get("user_query")
+    dataset_summary = state.get("dataset_summary")
+    eda_report = state.get("eda_report")
+
+    if not user_query:
+        raise ValueError("User query not found in graph state.")
+
+    if dataset_summary is None:
+        raise ValueError("Dataset summary not found in graph state.")
+
+    if eda_report is None:
+        raise ValueError("EDA report not found in graph state.")
+
+    visualization_plan = await visualization_planner_agent.plan_visualizations(
+        user_query=user_query,
+        dataset_summary=dataset_summary,
+        eda_report=eda_report
+    )
+
+    state["visualization_plan"] = visualization_plan
+
+    return state
 
 
 async def visualization_node(state):

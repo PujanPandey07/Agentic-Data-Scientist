@@ -1,3 +1,6 @@
+
+from app.services.feature_engineering import FeatureEngineeringService
+from app.agents.feature_engineering_planner import FeatureEngineeringPlannerAgent
 from services.visualization_service import visualization_service
 from langgraph.graph import END
 from services.eda_service import eda_service
@@ -200,12 +203,46 @@ async def visualization_node(state):
     )
 
 
-async def feature_engineering_node(state):
-    return advance_execution(
-        state,
-        "feature_engineering",
-        "Feature engineering completed successfully."
+async def feature_engineering_planner_node(state):
+    """LLM reasoning: decides WHAT feature engineering to do."""
+    agent = FeatureEngineeringPlannerAgent()
+
+    plan = await agent.plan(
+        user_query=state.get("user_query", ""),
+        dataset_summary=state.get("dataset_summary"),
+        eda_report=state.get("eda_report", {}),
     )
+
+    state["feature_engineering_plan"] = plan
+    return state
+
+
+async def feature_engineering_node(state):
+    """Deterministic execution: applies the plan to the dataframe."""
+    df = state.get("dataframe")
+    plan = state.get("feature_engineering_plan")
+
+    if df is None or plan is None:
+        state["feature_engineering_report"] = {
+            "error": "Missing dataframe or feature engineering plan"
+        }
+        return advance_execution(
+            state, "feature_engineering", "Skipped: missing required inputs"
+        )
+
+    service = FeatureEngineeringService()
+    transformed_df, report = service.apply_plan(df, plan)
+
+    # The cleaned dataframe is replaced by the engineered dataframe
+    state["dataframe"] = transformed_df
+    state["feature_engineering_report"] = report
+
+    msg = (
+        f"Feature engineering complete. "
+        f"Shape: {df.shape} -> {transformed_df.shape}. "
+        f"Steps: {report['steps_executed']}/{len(plan.steps)} succeeded."
+    )
+    return advance_execution(state, "feature_engineering", msg)
 
 
 async def training_node(state):

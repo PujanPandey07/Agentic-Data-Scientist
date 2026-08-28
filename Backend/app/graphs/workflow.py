@@ -14,7 +14,6 @@ builder.add_node("initialize_execution", initialize_execution_node)
 builder.add_node("cleaning", cleaning_node)
 builder.add_node("eda", eda_node)
 builder.add_node("visualization", visualization_node)
-builder.add_node("feature_engineering", feature_engineering_node)
 builder.add_node("training", training_node)
 builder.add_node("evaluation", evaluation_node)
 builder.add_node("reporting", reporting_node)
@@ -37,7 +36,7 @@ builder.add_conditional_edges(
         "cleaning": "cleaning",
         "eda": "eda",
         "visualization": "visualization_planner",
-        "feature_engineering": "feature_engineering_planner"
+        "feature_engineering": "feature_engineering_planner",
         "training": "training",
         "evaluation": "evaluation",
         "reporting": "reporting",

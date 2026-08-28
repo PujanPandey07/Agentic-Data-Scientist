@@ -1,6 +1,6 @@
 
-from app.services.feature_engineering import FeatureEngineeringService
-from app.agents.feature_engineering_planner import FeatureEngineeringPlannerAgent
+from services.feature_engineering import FeatureEngineeringService
+from agents.feature_engineering_planner import FeatureEngineeringPlannerAgent
 from services.visualization_service import visualization_service
 from langgraph.graph import END
 from services.eda_service import eda_service

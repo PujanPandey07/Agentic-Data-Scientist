@@ -1,8 +1,8 @@
 from typing import TypedDict
 import pandas as pd
 
-from Backend.app.schema.feature_planner import FeatureEngineeringPlan
-from Backend.app.schema.feature_planner import FeatureEngineeringPlan
+from schema.feature_planner import FeatureEngineeringPlan
+from schema.feature_planner import FeatureEngineeringPlan
 from schema.visualization_plan import VisualizationPlanResponse
 from schema.analysis_plan import AnalysisPlan
 from schema.dataset_summary import DatasetSummary

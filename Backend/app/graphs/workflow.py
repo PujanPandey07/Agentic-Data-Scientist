@@ -1,8 +1,9 @@
 from langgraph.graph import START, END, StateGraph
 
-from graphs.nodes import dataset_node, planner_node, initialize_execution_node, advance_execution, router, cleaning_node, eda_node, visualization_node, feature_engineering_node, training_node, evaluation_node, reporting_node, route_task, planner_agent, visualization_planner_node
+from graphs.nodes import dataset_node, planner_node, initialize_execution_node, advance_execution, router, cleaning_node, eda_node, visualization_node, feature_engineering_node, training_node, evaluation_node, reporting_node, route_task, planner_agent, visualization_planner_node, feature_engineering_planner_node, feature_engineering_node
 
 from graphs.state import GraphState
+
 
 builder = StateGraph(GraphState)
 
@@ -19,6 +20,9 @@ builder.add_node("evaluation", evaluation_node)
 builder.add_node("reporting", reporting_node)
 builder.add_node("router", router)
 builder.add_node("visualization_planner", visualization_planner_node)
+builder.add_node("feature_engineering_planner",
+                 feature_engineering_planner_node)
+builder.add_node("feature_engineering", feature_engineering_node)
 
 
 # Define workflow
@@ -33,7 +37,7 @@ builder.add_conditional_edges(
         "cleaning": "cleaning",
         "eda": "eda",
         "visualization": "visualization_planner",
-        "feature_engineering": "feature_engineering",
+        "feature_engineering": "feature_engineering_planner"
         "training": "training",
         "evaluation": "evaluation",
         "reporting": "reporting",
@@ -47,6 +51,8 @@ builder.add_edge("eda", "router")
 builder.add_edge("visualization_planner", "visualization")
 builder.add_edge("visualization", "router")
 
+builder.add_edge("feature_engineering_planner",
+                 "feature_engineering")  # PLAN -> EXECUTE
 builder.add_edge("feature_engineering", "router")
 builder.add_edge("training", "router")
 builder.add_edge("evaluation", "router")

@@ -1,8 +1,9 @@
 from typing import TypedDict
 import pandas as pd
 
-from Backend.app.schema.feature_planner import FeatureEngineeringPlan
-from Backend.app.schema.feature_planner import FeatureEngineeringPlan
+from schema.model_selection import ModelSelectionPlan
+from schema.feature_planner import FeatureEngineeringPlan
+from schema.feature_planner import FeatureEngineeringPlan
 from schema.visualization_plan import VisualizationPlanResponse
 from schema.analysis_plan import AnalysisPlan
 from schema.dataset_summary import DatasetSummary
@@ -12,6 +13,7 @@ class GraphState(TypedDict):
     # User Input
     user_query: str
     dataset_id: str
+    target_column: str | None        # NEW — set by main planner
 
     # Dataset
     dataframe: pd.DataFrame | None
@@ -26,16 +28,21 @@ class GraphState(TypedDict):
     # EDA
     eda_report: dict | None
 
+    # Visualization
+    visualization_plan: VisualizationPlanResponse | None
+    visualization_results: list[dict] | None
+
+    # Feature Engineering
+    feature_engineering_plan: FeatureEngineeringPlan | None
+    feature_engineering_report: dict | None
+
+    # Training
+    model_selection_plan: ModelSelectionPlan | None
+    training_report: dict | None
+    trained_model_path: str | None   # NEW — set by training node
+
     # Task Management
     current_task: str | None
     remaining_tasks: list[str]
     completed_tasks: list[str]
     execution_logs: list[dict]
-
-    # Visualization
-    visualization_plan: VisualizationPlanResponse | None
-    visualizations: list[dict]
-
-    # Feature Engineering
-    feature_engineering_plan: FeatureEngineeringPlan | None
-    feature_engineering_report: dict | None

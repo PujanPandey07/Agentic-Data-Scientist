@@ -17,7 +17,6 @@ Available tasks include:
 - visualization
 - feature_engineering
 - model_selection
-- training
 - evaluation
 - reporting
 """

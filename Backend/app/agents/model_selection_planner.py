@@ -1,6 +1,6 @@
-from llm import get_llm
+from llm.provider import get_llm
 from schema.model_selection import ModelSelectionPlan
-from app.prompts.model_selection import MODEL_SELECTION_PLANNER_PROMPT
+from prompts.model_selection import MODEL_SELECTION_PLANNER_PROMPT
 
 
 class ModelSelectionPlannerAgent:

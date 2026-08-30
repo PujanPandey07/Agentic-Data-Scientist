@@ -10,12 +10,14 @@ from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.base import clone
 
 from schema.model_selection import ModelSelectionPlan, ModelCandidate
+import os
+import joblib
 
 
 class TrainingService:
     """Deterministic model trainer. Executes the ModelSelectionPlan sequentially."""
 
-    def train(self, df: pd.DataFrame, plan: ModelSelectionPlan, target_column: str):
+    def train(self, df: pd.DataFrame, plan: ModelSelectionPlan, target_column: str, dataset_id: str):
         """
         Train candidate models according to the plan.
         Returns: (best_trained_model, training_report, best_candidate)
@@ -114,7 +116,7 @@ class TrainingService:
             raise RuntimeError(
                 "All candidate models failed. Check logs for details.")
 
-        # Retrain best model on FULL data (if we sampled)
+        # Retrain best model on FULL data
         if used_sampling:
             final_model = clone(best_model)
             final_model.fit(X, y_encoded)
@@ -124,6 +126,7 @@ class TrainingService:
             final_model.fit(X, y_encoded)
             retrain_note = "Best model trained on full dataset (no sampling needed)."
 
+        # BUILD REPORT FIRST
         report = {
             "strategy": plan.strategy,
             "sample_size": plan.sample_size,
@@ -142,6 +145,12 @@ class TrainingService:
             "retrain_note": retrain_note,
             "notes": plan.notes,
         }
+
+        # THEN save model and add path
+        os.makedirs("outputs/models", exist_ok=True)
+        model_path = f"outputs/models/{dataset_id}_best_model.pkl"
+        joblib.dump(final_model, model_path)
+        report["model_path"] = model_path
 
         return final_model, report, best_candidate
 

@@ -64,6 +64,27 @@ async def main():
         print(
             f"FE STATUS: {report['steps_executed']} succeeded, {report['steps_failed']} failed")
 
+    if final_state.get("training_report"):
+        report = final_state["training_report"]
+        print(f"\nTRAINING:")
+        print(f"  Strategy: {report['strategy']}")
+        print(f"  Best algorithm: {report['best_algorithm']}")
+        print(f"  Best CV score: {report['best_mean_cv_score']}")
+        print(f"  Model path: {report.get('model_path', 'N/A')}")
+        print(f"  Time spent: {report['time_spent_seconds']}s")
+        print(f"  Candidates tried:")
+        for r in report["candidates_results"]:
+            status = "✅" if r["status"] == "success" else "❌"
+            if r["status"] == "success":
+                print(
+                    f"    {status} {r['algorithm']}: {r['mean_cv_score']:.5f} (+/- {r['std_cv_score']:.5f}) [{r['actual_time_seconds']}s]")
+            else:
+                print(
+                    f"    {status} {r['algorithm']}: FAILED - {r.get('error', 'unknown')}")
+
+    if final_state.get("trained_model_path"):
+        print(f"\nMODEL SAVED: {final_state['trained_model_path']}")
+
     print("\n========== DONE ==========\n")
 
 

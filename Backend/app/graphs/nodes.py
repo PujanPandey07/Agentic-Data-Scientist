@@ -1,4 +1,8 @@
 
+
+from services.trainning import TrainingService
+from agents.model_selection_planner import ModelSelectionPlannerAgent
+import os
 from services.feature_engineering import FeatureEngineeringService
 from agents.feature_engineering_planner import FeatureEngineeringPlannerAgent
 from services.visualization_service import visualization_service
@@ -54,6 +58,7 @@ async def planner_node(state):
     print("====================================\n")
 
     state["analysis_plan"] = plan
+    state["target_column"] = plan.target_column
 
     return state
 
@@ -94,8 +99,8 @@ def route_task(state):
     if task == "feature_engineering":
         return "feature_engineering"
 
-    if task == "training":
-        return "training"
+    if task == "model_selection":
+        return "model_selection"
 
     if task == "visualization":
         return "visualization"
@@ -245,12 +250,59 @@ async def feature_engineering_node(state):
     return advance_execution(state, "feature_engineering", msg)
 
 
-async def training_node(state):
-    return advance_execution(
-        state,
-        "training",
-        "Model training completed successfully."
+async def model_selection_planner_node(state):
+    """LLM reasoning: decides WHICH models to try."""
+    agent = ModelSelectionPlannerAgent()
+
+    plan = await agent.plan(
+        user_query=state.get("user_query", ""),
+        dataset_summary=state.get("dataset_summary"),
+        eda_report=state.get("eda_report", {}),
+        feature_engineering_report=state.get("feature_engineering_report"),
     )
+
+    state["model_selection_plan"] = plan
+    return state
+
+
+async def training_node(state):
+    """Deterministic execution: trains models, picks best, saves to disk."""
+    df = state.get("dataframe")
+    plan = state.get("model_selection_plan")
+    target_column = state.get("target_column")
+    dataset_id = state.get("dataset_id")  # <-- THIS WAS MISSING
+
+    print(f"DEBUG: df shape = {df.shape if df is not None else None}")
+    print(f"DEBUG: plan = {plan is not None}")
+    print(f"DEBUG: target_column = {target_column}")
+    print(f"DEBUG: dataset_id = {dataset_id}")
+
+    if df is None or plan is None or target_column is None:
+        state["training_report"] = {
+            "error": "Missing dataframe, model selection plan, or target column"
+        }
+        return advance_execution(state, "model_selection", "Skipped: missing required inputs")
+
+    service = TrainingService()
+
+    print(f"DEBUG: Calling service.train...")
+    final_model, report, best_candidate = service.train(
+        df=df,
+        plan=plan,
+        target_column=target_column,
+        dataset_id=dataset_id,  # <-- NOW THIS WORKS
+    )
+    print(f"DEBUG: Training done! Best: {best_candidate.algorithm}")
+
+    state["training_report"] = report
+    state["trained_model_path"] = report.get("model_path")
+
+    msg = (
+        f"Training complete. Best: {best_candidate.algorithm} "
+        f"with CV score {report['best_mean_cv_score']}. "
+        f"Model saved to {report.get('model_path', 'N/A')}"
+    )
+    return advance_execution(state, "model_selection", msg)
 
 
 async def evaluation_node(state):

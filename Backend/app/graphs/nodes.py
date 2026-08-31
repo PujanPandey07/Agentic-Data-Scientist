@@ -1,5 +1,5 @@
 
-
+from services.reporting import ReportingService
 from services.evaluation import EvaluationService
 from services.trainning import TrainingService
 from agents.model_selection_planner import ModelSelectionPlannerAgent
@@ -353,8 +353,16 @@ async def evaluation_node(state):
 
 
 async def reporting_node(state):
-    return advance_execution(
-        state,
-        "reporting",
-        "Reporting completed successfully."
+    """Aggregate all results into final report."""
+    service = ReportingService()
+    report = service.generate_report(state)
+
+    state["final_report"] = report
+
+    msg = (
+        f"Reporting complete. "
+        f"Report saved to {report.get('report_path', 'N/A')}. "
+        f"Best model: {report['conclusions']['best_model']} "
+        f"(accuracy: {report['conclusions'].get('final_accuracy', 'N/A')})"
     )
+    return advance_execution(state, "reporting", msg)

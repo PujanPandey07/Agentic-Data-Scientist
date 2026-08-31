@@ -212,13 +212,15 @@ class TrainingService:
         # Classification models
         if is_classification:
             if algo == "logistic_regression":
-                return LogisticRegression(**params)
+                safe_params = {k: v for k, v in params.items() if k not in [
+                    "multi_class"]}
+                return LogisticRegression(**safe_params)
             elif algo == "random_forest":
                 return RandomForestClassifier(**params)
             elif algo == "xgboost":
                 try:
                     from xgboost import XGBClassifier
-                    return XGBClassifier(use_label_encoder=False, eval_metric="logloss", **params)
+                    return XGBClassifier(use_label_encoder=False, **params)
                 except ImportError:
                     raise ImportError(
                         "xgboost not installed. Run: pip install xgboost")

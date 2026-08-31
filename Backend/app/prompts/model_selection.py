@@ -54,7 +54,7 @@ CANDIDATE SELECTION RULES:
 - Hyperparameters should be SIMPLE defaults. No grid search. Examples:
   - Random Forest: {"n_estimators": 100, "max_depth": 5}
   - XGBoost: {"n_estimators": 100, "max_depth": 3, "learning_rate": 0.1}
-  - Logistic Regression: {"max_iter": 1000, "multi_class": "multinomial"}
+  - Logistic Regression: {"max_iter": 1000,"c": 1.0}
   - SVM: {"C": 1.0, "kernel": "rbf"}
   - Neural Network: {"hidden_layer_sizes": (100,), "max_iter": 500}
 

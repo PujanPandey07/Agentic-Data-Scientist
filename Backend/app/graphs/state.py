@@ -41,6 +41,9 @@ class GraphState(TypedDict):
     training_report: dict | None
     trained_model_path: str | None   # NEW — set by training node
 
+    # evaluation
+    evaluation_report: dict | None
+
     # Task Management
     current_task: str | None
     remaining_tasks: list[str]

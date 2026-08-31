@@ -1,5 +1,6 @@
 
-
+from services.reporting import ReportingService
+from services.evaluation import EvaluationService
 from services.trainning import TrainingService
 from agents.model_selection_planner import ModelSelectionPlannerAgent
 import os
@@ -306,16 +307,62 @@ async def training_node(state):
 
 
 async def evaluation_node(state):
-    return advance_execution(
-        state,
-        "evaluation",
-        "Model evaluation completed successfully."
+    """Deterministic evaluation: loads model, computes metrics, generates artifacts."""
+    df = state.get("dataframe")
+    target_column = state.get("target_column")
+    model_path = state.get("trained_model_path")
+    analysis_plan = state.get("analysis_plan")
+
+    if df is None or target_column is None or model_path is None:
+        state["evaluation_report"] = {
+            "error": "Missing dataframe, target column, or trained model path"
+        }
+        return advance_execution(state, "evaluation", "Skipped: missing required inputs")
+
+    if not os.path.exists(model_path):
+        state["evaluation_report"] = {
+            "error": f"Model file not found: {model_path}"
+        }
+        return advance_execution(state, "evaluation", "Skipped: model file missing")
+
+    problem_type = analysis_plan.problem_type if analysis_plan else "classification"
+
+    service = EvaluationService()
+    report = service.evaluate(
+        df=df,
+        target_column=target_column,
+        model_path=model_path,
+        problem_type=problem_type,
     )
+
+    state["evaluation_report"] = report
+
+    metrics = report["metrics"]
+    if report["problem_type"] == "classification":
+        msg = (
+            f"Evaluation complete. Accuracy: {metrics['accuracy']}, "
+            f"F1 (weighted): {metrics['f1_weighted']}"
+        )
+    else:
+        msg = (
+            f"Evaluation complete. RMSE: {metrics['rmse']}, "
+            f"R²: {metrics['r2']}"
+        )
+
+    return advance_execution(state, "evaluation", msg)
 
 
 async def reporting_node(state):
-    return advance_execution(
-        state,
-        "reporting",
-        "Reporting completed successfully."
+    """Aggregate all results into final report."""
+    service = ReportingService()
+    report = service.generate_report(state)
+
+    state["final_report"] = report
+
+    msg = (
+        f"Reporting complete. "
+        f"Report saved to {report.get('report_path', 'N/A')}. "
+        f"Best model: {report['conclusions']['best_model']} "
+        f"(accuracy: {report['conclusions'].get('final_accuracy', 'N/A')})"
     )
+    return advance_execution(state, "reporting", msg)

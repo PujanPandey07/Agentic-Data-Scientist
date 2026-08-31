@@ -85,6 +85,43 @@ async def main():
     if final_state.get("trained_model_path"):
         print(f"\nMODEL SAVED: {final_state['trained_model_path']}")
 
+        if final_state.get("evaluation_report"):
+            report = final_state["evaluation_report"]
+            print(f"\nEVALUATION:")
+            print(f"  Problem type: {report['problem_type']}")
+            print(f"  Samples evaluated: {report['num_samples']}")
+            print(f"  Features used: {report['num_features']}")
+
+            metrics = report["metrics"]
+            if report["problem_type"] == "classification":
+                print(f"  Accuracy: {metrics['accuracy']}")
+                print(f"  F1 (weighted): {metrics['f1_weighted']}")
+                print(f"  F1 (macro): {metrics['f1_macro']}")
+                print(
+                    f"  Precision (weighted): {metrics['precision_weighted']}")
+                print(f"  Recall (weighted): {metrics['recall_weighted']}")
+            else:
+                print(f"  RMSE: {metrics['rmse']}")
+                print(f"  R²: {metrics['r2']}")
+                print(f"  MAE: {metrics['mae']}")
+
+            artifacts = report.get("artifacts", {})
+            if "confusion_matrix_path" in artifacts:
+                print(
+                    f"  Confusion matrix: {artifacts['confusion_matrix_path']}")
+            if "residual_plot_path" in artifacts:
+                print(f"  Residual plot: {artifacts['residual_plot_path']}")
+    if final_state.get("final_report"):
+        report = final_state["final_report"]
+        print(f"\nFINAL REPORT:")
+        print(f"  Saved to: {report.get('report_path')}")
+        print(f"  Problem type: {report['problem_type']}")
+        print(f"  Best model: {report['conclusions']['best_model']}")
+        print(f"  CV score: {report['conclusions']['cv_score']}")
+        print(
+            f"  Final accuracy: {report['conclusions'].get('final_accuracy')}")
+        print(f"  Recommendation: {report['conclusions']['recommendation']}")
+
     print("\n========== DONE ==========\n")
 
 

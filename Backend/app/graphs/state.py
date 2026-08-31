@@ -44,6 +44,9 @@ class GraphState(TypedDict):
     # evaluation
     evaluation_report: dict | None
 
+    # reporting
+    final_report: dict | None
+
     # Task Management
     current_task: str | None
     remaining_tasks: list[str]

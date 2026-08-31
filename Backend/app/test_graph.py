@@ -111,6 +111,16 @@ async def main():
                     f"  Confusion matrix: {artifacts['confusion_matrix_path']}")
             if "residual_plot_path" in artifacts:
                 print(f"  Residual plot: {artifacts['residual_plot_path']}")
+    if final_state.get("final_report"):
+        report = final_state["final_report"]
+        print(f"\nFINAL REPORT:")
+        print(f"  Saved to: {report.get('report_path')}")
+        print(f"  Problem type: {report['problem_type']}")
+        print(f"  Best model: {report['conclusions']['best_model']}")
+        print(f"  CV score: {report['conclusions']['cv_score']}")
+        print(
+            f"  Final accuracy: {report['conclusions'].get('final_accuracy')}")
+        print(f"  Recommendation: {report['conclusions']['recommendation']}")
 
     print("\n========== DONE ==========\n")
 

@@ -232,8 +232,11 @@ class TrainingService:
                     raise ImportError(
                         "lightgbm not installed. Run: pip install lightgbm")
             elif algo == "svm_rbf":
+                # Filter out kernel
+                params = {k: v for k, v in params.items() if k != "kernel"}
                 return SVC(kernel="rbf", **params)
             elif algo == "svm_linear":
+                params = {k: v for k, v in params.items() if k != "kernel"}
                 return SVC(kernel="linear", **params)
             elif algo == "neural_network_mlp":
                 return MLPClassifier(**params)

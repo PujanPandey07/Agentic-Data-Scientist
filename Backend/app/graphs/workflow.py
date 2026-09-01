@@ -1,6 +1,6 @@
 from langgraph.graph import START, END, StateGraph
 
-from graphs.nodes import dataset_node, planner_node, initialize_execution_node, advance_execution, router, cleaning_node, eda_node, visualization_node, feature_engineering_node, training_node, evaluation_node, reporting_node, route_task, planner_agent, visualization_planner_node, feature_engineering_planner_node, feature_engineering_node, model_selection_planner_node, training_node, evaluation_node, reporting_node
+from graphs.nodes import dataset_node, planner_node, initialize_execution_node, advance_execution, router, cleaning_node, eda_node, visualization_node, feature_engineering_node, training_node, evaluation_node, reporting_node, route_task, planner_agent, visualization_planner_node, feature_engineering_planner_node, feature_engineering_node, model_selection_planner_node, training_node, evaluation_node, reporting_node, hyperparameter_tuning_node
 
 from graphs.state import GraphState
 
@@ -23,6 +23,7 @@ builder.add_node("visualization_planner", visualization_planner_node)
 builder.add_node("feature_engineering_planner",
                  feature_engineering_planner_node)
 builder.add_node("feature_engineering", feature_engineering_node)
+builder.add_node("hyperparameter_tuning", hyperparameter_tuning_node)
 
 
 # Define workflow
@@ -39,6 +40,7 @@ builder.add_conditional_edges(
         "visualization": "visualization_planner",
         "feature_engineering": "feature_engineering_planner",
         "model_selection": "model_selection_planner",
+        "hyperparameter_tuning": "hyperparameter_tuning",
         "evaluation": "evaluation",
         "reporting": "reporting",
         END: END,
@@ -56,6 +58,7 @@ builder.add_edge("feature_engineering_planner",
 builder.add_edge("feature_engineering", "router")
 builder.add_edge("model_selection_planner", "training")
 builder.add_edge("training", "router")
+builder.add_edge("hyperparameter_tuning", "router")
 builder.add_edge("evaluation", "router")
 builder.add_edge("reporting", "router")
 

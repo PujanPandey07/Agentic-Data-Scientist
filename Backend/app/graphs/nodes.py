@@ -1,4 +1,5 @@
 
+from services.hyper_parameters_tuning import HyperparameterTuningService
 from services.reporting import ReportingService
 from services.evaluation import EvaluationService
 from services.trainning import TrainingService
@@ -105,6 +106,8 @@ def route_task(state):
 
     if task == "visualization":
         return "visualization"
+    if task == "hyperparameter_tuning":        # <-- ADD THIS
+        return "hyperparameter_tuning"
 
     if task == "evaluation":
         return "evaluation"
@@ -366,3 +369,57 @@ async def reporting_node(state):
         f"(accuracy: {report['conclusions'].get('final_accuracy', 'N/A')})"
     )
     return advance_execution(state, "reporting", msg)
+
+
+async def hyperparameter_tuning_node(state):
+    df = state.get("dataframe")
+    plan = state.get("model_selection_plan")
+    training_report = state.get("training_report")
+    target_column = state.get("target_column")
+    dataset_id = state.get("dataset_id")
+    analysis_plan = state.get("analysis_plan")
+
+    if df is None or plan is None or training_report is None or target_column is None or dataset_id is None:
+        state["hyperparameter_tuning_report"] = {
+            "status": "skipped", "reason": "missing inputs"}
+        state["tuned_model_path"] = state.get("trained_model_path")
+        return advance_execution(state, "hyperparameter_tuning", "Skipped: missing inputs")
+
+    # Skip for quick strategy
+    if plan.strategy == "quick":
+        state["hyperparameter_tuning_report"] = {
+            "status": "skipped", "reason": "quick strategy"}
+        state["tuned_model_path"] = state.get("trained_model_path")
+        return advance_execution(state, "hyperparameter_tuning", "Skipped: quick strategy")
+
+    best_algorithm = training_report["best_algorithm"]
+    best_candidate = next(
+        (c for c in plan.candidates if c.algorithm == best_algorithm), None)
+    if not best_candidate:
+        state["hyperparameter_tuning_report"] = {
+            "status": "skipped", "reason": "best candidate not found"}
+        state["tuned_model_path"] = state.get("trained_model_path")
+        return advance_execution(state, "hyperparameter_tuning", "Skipped: candidate not found")
+
+    service = HyperparameterTuningService()
+    tuned_model, report = service.tune(
+        df=df,
+        target_column=target_column,
+        best_candidate=best_candidate,
+        problem_type=analysis_plan.problem_type,
+        dataset_id=dataset_id,
+        max_trials=20 if plan.strategy == "standard" else 50,
+        time_budget_seconds=120 if plan.strategy == "standard" else 300,
+    )
+
+    state["hyperparameter_tuning_report"] = report
+    state["tuned_model_path"] = report["tuned_model_path"]
+
+    top_param = max(report["param_importance"],
+                    key=report["param_importance"].get) if report["param_importance"] else "N/A"
+    msg = (
+        f"Tuning complete. Score: {report['best_trial_score']}. "
+        f"Trials: {report['num_trials_completed']}. "
+        f"Top param: {top_param}"
+    )
+    return advance_execution(state, "hyperparameter_tuning", msg)

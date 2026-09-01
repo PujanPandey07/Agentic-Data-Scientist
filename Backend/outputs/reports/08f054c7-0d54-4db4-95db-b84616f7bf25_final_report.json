@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-31T16:51:45.433296Z",
+  "generated_at": "2026-09-01T08:19:43.833633Z",
   "user_query": "Build a classification model on the Iris dataset",
   "dataset_id": "08f054c7-0d54-4db4-95db-b84616f7bf25",
   "target_column": "species",
@@ -11,9 +11,10 @@
       "visualization",
       "feature_engineering",
       "model_selection",
+      "hyperparameter_tuning",
       "evaluation"
     ],
-    "total_tasks": 6
+    "total_tasks": 7
   },
   "dataset_overview": {
     "final_shape": [
@@ -160,6 +161,7 @@
       {
         "action": "drop_high_correlation",
         "columns": [
+          "petal_length",
           "petal_width"
         ],
         "status": "success",
@@ -180,11 +182,13 @@
     "columns_removed": [
       "petal_width"
     ],
-    "warnings": [],
+    "warnings": [
+      "Scale parameters should be fitted on the training split only to avoid data leakage.",
+      "Remove duplicate rows (3 duplicates) before applying the pipeline; this step is not included in the action list."
+    ],
     "notes": [
-      "Balanced strategy was selected based on the neutral request to build a classification model.",
-      "Duplicate rows (3) should be removed prior to training; this can be done with a simple DataFrame.drop_duplicates().",
-      "No categorical encoding is needed for the target column 'species'."
+      "Balanced strategy inferred from the neutral request to build a classification model.",
+      "No encoding needed for the target column 'species' at this stage."
     ]
   },
   "training": {
@@ -201,8 +205,8 @@
     ],
     "cv_folds": 5,
     "scoring_metric": "accuracy",
-    "time_budget_minutes": 8,
-    "time_spent_seconds": 2.15,
+    "time_budget_minutes": 10,
+    "time_spent_seconds": 1.3,
     "candidates_results": [
       {
         "algorithm": "logistic_regression",
@@ -216,15 +220,15 @@
           0.9310344827586207,
           1.0
         ],
-        "estimated_time_seconds": 1,
-        "actual_time_seconds": 0.09,
+        "estimated_time_seconds": 5,
+        "actual_time_seconds": 0.06,
         "hyperparams": {
           "C": 1,
           "max_iter": 1000,
           "multi_class": "auto",
           "solver": "lbfgs"
         },
-        "reason": "Fast baseline; works well with the 4 standardized numeric features after scaling. Balanced 3\u2011class problem, linear decision boundaries provide a performance floor."
+        "reason": "Dataset is tiny (147 rows) with only 4 scaled numeric features. Logistic Regression trains instantly, provides a solid baseline, and handles multiclass naturally. Scaling was already applied, making linear models appropriate."
       },
       {
         "algorithm": "random_forest",
@@ -238,14 +242,14 @@
           0.9310344827586207,
           1.0
         ],
-        "estimated_time_seconds": 2,
-        "actual_time_seconds": 0.76,
+        "estimated_time_seconds": 10,
+        "actual_time_seconds": 0.67,
         "hyperparams": {
           "max_depth": 5,
           "n_estimators": 100,
           "random_state": 42
         },
-        "reason": "Handles potential non\u2011linear relationships evident in scatter plots. Works natively with numeric data, robust to the small dataset, and adds little overhead."
+        "reason": "Tree ensembles cope well with any non\u2011linear patterns and require no further preprocessing. With only 4 features they train quickly even on a tiny dataset, offering a robust improvement over the linear baseline."
       },
       {
         "algorithm": "xgboost",
@@ -259,8 +263,8 @@
           0.9310344827586207,
           0.9655172413793104
         ],
-        "estimated_time_seconds": 3,
-        "actual_time_seconds": 1.29,
+        "estimated_time_seconds": 15,
+        "actual_time_seconds": 0.57,
         "hyperparams": {
           "eval_metric": "mlogloss",
           "learning_rate": 0.1,
@@ -271,7 +275,7 @@
           "random_state": 42,
           "verbosity": 0
         },
-        "reason": "Gradient\u2011boosted trees capture complex decision boundaries better than a single tree. With only 147 rows, a shallow depth keeps training fast while often improving accuracy over Random Forest."
+        "reason": "XGBoost provides gradient\u2011boosted trees that often outperform plain Random Forest on small, clean numeric data. The default shallow depth keeps training fast while capturing subtle interactions."
       }
     ],
     "best_algorithm": "random_forest",
@@ -281,11 +285,12 @@
       "n_estimators": 100,
       "random_state": 42
     },
-    "best_reason": "Handles potential non\u2011linear relationships evident in scatter plots. Works natively with numeric data, robust to the small dataset, and adds little overhead.",
+    "best_reason": "Tree ensembles cope well with any non\u2011linear patterns and require no further preprocessing. With only 4 features they train quickly even on a tiny dataset, offering a robust improvement over the linear baseline.",
     "retrain_note": "Best model trained on full dataset (no sampling needed).",
     "notes": [
-      "Neural network (MLP) excluded: dataset < 1K rows, deep learning would overfit and adds unnecessary complexity.",
-      "SVM (linear and RBF) excluded: while feasible on this size, tree\u2011based models already cover non\u2011linear patterns and provide comparable speed; keeping candidate count to 3 respects the standard strategy budget."
+      "Deep learning models excluded: dataset < 1K rows, insufficient data for neural nets.",
+      "SVM (linear or RBF) excluded: while feasible, the chosen tree models already cover non\u2011linear patterns and add little extra value for this tiny dataset.",
+      "Neural network (MLP) excluded for same reason as deep learning."
     ],
     "model_path": "outputs/models/08f054c7-0d54-4db4-95db-b84616f7bf25_best_model.pkl"
   },
@@ -325,7 +330,8 @@
         "0",
         "1",
         "2"
-      ]
+      ],
+      "learning_curve_path": "outputs/evaluation/learning_curve.png"
     }
   },
   "conclusions": {

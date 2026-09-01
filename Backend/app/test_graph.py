@@ -82,6 +82,19 @@ async def main():
                 print(
                     f"    {status} {r['algorithm']}: FAILED - {r.get('error', 'unknown')}")
 
+    if final_state.get("hyperparameter_tuning_report"):
+        report = final_state["hyperparameter_tuning_report"]
+        print(f"\nHYPERPARAMETER TUNING:")
+        print(f"  Status: {report.get('status', 'completed')}")
+        if report.get('status') != 'skipped':
+            print(f"  Best trial score: {report.get('best_trial_score')}")
+            print(
+                f"  Trials completed: {report.get('num_trials_completed')}")
+            print(f"  Best params: {report.get('best_params')}")
+            print(
+                f"  Top important param: {max(report.get('param_importance', {}), key=report.get('param_importance', {}).get) if report.get('param_importance') else 'N/A'}")
+            print(f"  Tuned model: {report.get('tuned_model_path')}")
+
     if final_state.get("trained_model_path"):
         print(f"\nMODEL SAVED: {final_state['trained_model_path']}")
 

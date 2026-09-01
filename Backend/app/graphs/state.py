@@ -43,6 +43,8 @@ class GraphState(TypedDict):
 
     # evaluation
     evaluation_report: dict | None
+    hyperparameter_tuning_report: dict | None
+    tuned_model_path: str | None
 
     # reporting
     final_report: dict | None

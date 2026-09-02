@@ -1,3 +1,8 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 class ExecutionService:
 
     def advance_task(
@@ -20,6 +25,10 @@ class ExecutionService:
                 "status": "success",
                 "message": message
             }
+        )
+
+        logger.info(
+            f"Task '{completed_task}' completed. Next task: {state['current_task']}"
         )
 
         return state

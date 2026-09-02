@@ -1,5 +1,6 @@
 import os
 import time
+import logging
 import joblib
 import optuna
 import pandas as pd
@@ -8,10 +9,17 @@ from sklearn.model_selection import cross_val_score
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
+logger = logging.getLogger(__name__)
+
 
 class HyperparameterTuningService:
     def tune(self, df, target_column, best_candidate, problem_type, dataset_id,
              max_trials=20, time_budget_seconds=120):
+        logger.info(
+            f"Starting tuning: algorithm={best_candidate.algorithm}, "
+            f"max_trials={max_trials}, time_budget={time_budget_seconds}s"
+        )
+
         X = df.drop(columns=[target_column])
         y = df[target_column]
 
@@ -58,8 +66,14 @@ class HyperparameterTuningService:
             importances = optuna.importance.get_param_importances(study)
             report["param_importance"] = {
                 k: round(float(v), 4) for k, v in importances.items()}
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Could not compute param importances: {e}")
             report["param_importance"] = {}
+
+        logger.info(
+            f"Tuning done: {report['num_trials_completed']} trials in {report['time_seconds']}s, "
+            f"best_score={report['best_trial_score']}"
+        )
 
         return final_model, report
 
@@ -105,6 +119,7 @@ class HyperparameterTuningService:
             from sklearn.svm import SVC, SVR
             return SVC(kernel="rbf", **params) if problem_type == "classification" else SVR(kernel="rbf", **params)
 
+        logger.error(f"Tuning not implemented for algorithm: {algorithm}")
         raise ValueError(f"Tuning not implemented for: {algorithm}")
 
     def _build_model(self, algorithm, params, problem_type):

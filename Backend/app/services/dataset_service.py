@@ -1,10 +1,13 @@
 from pathlib import Path
 from uuid import uuid4
+import logging
 
 from fastapi import HTTPException, UploadFile
 import pandas as pd
 
 from schema.upload import UploadResponse
+
+logger = logging.getLogger(__name__)
 
 
 class DatasetService:
@@ -20,6 +23,8 @@ class DatasetService:
         extension = Path(file.filename).suffix.lower()
 
         if extension not in self.ALLOWED_EXTENSIONS:
+            logger.warning(
+                f"Rejected upload with unsupported extension: {extension}")
             raise HTTPException(
                 status_code=400,
                 detail="Unsupported file type."
@@ -35,6 +40,9 @@ class DatasetService:
         with open(file_path, "wb") as f:
             f.write(contents)
 
+        logger.info(
+            f"Uploaded dataset {dataset_id} ({file.filename}, {len(contents)} bytes)")
+
         return UploadResponse(
             success=True,
             dataset_id=dataset_id,
@@ -47,25 +55,16 @@ class DatasetService:
 
     def get_dataset_path(self, dataset_id: str) -> Path:
 
-        print("\n========== DATASET DEBUG ==========")
-        print("Dataset ID:", dataset_id)
-        print("Upload directory:", self.upload_dir.resolve())
-        print("Upload directory exists:", self.upload_dir.exists())
-
-        files = list(self.upload_dir.glob("*"))
-        print("Files in upload directory:")
-        for file in files:
-            print(f"  - {file.name}")
-
         matches = list(self.upload_dir.glob(f"{dataset_id}.*"))
-        print("Matches:", matches)
-        print("===================================\n")
 
         if not matches:
+            logger.error(f"Dataset not found: {dataset_id}")
             raise HTTPException(
                 status_code=404,
                 detail="Dataset not found."
             )
+
+        logger.info(f"Resolved dataset {dataset_id} -> {matches[0].name}")
 
         return matches[0]
 
@@ -81,6 +80,7 @@ class DatasetService:
         elif extension in [".xlsx", ".xls"]:
             return pd.read_excel(file_path)
 
+        logger.error(f"Unsupported dataset type: {extension}")
         raise HTTPException(
             status_code=400,
             detail="Unsupported dataset type."

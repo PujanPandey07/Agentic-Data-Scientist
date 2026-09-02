@@ -1,6 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import logging
 
 from pathlib import Path
 
@@ -8,6 +9,8 @@ from schema.visualization_plan import (
     VisualizationPlan,
     VisualizationPlanResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class VisualizationService:
@@ -25,6 +28,10 @@ class VisualizationService:
         dataframe: pd.DataFrame,
         visualization_plan: VisualizationPlanResponse,
     ):
+        logger.info(
+            f"Starting visualization generation: {len(visualization_plan.visualizations)} charts planned"
+        )
+
         results = []
 
         for plan in visualization_plan.visualizations:
@@ -62,11 +69,17 @@ class VisualizationService:
                 )
 
             else:
+                logger.error(f"Unsupported chart type requested: {chart_type}")
                 raise ValueError(
                     f"Unsupported chart type: {chart_type}"
                 )
 
+            logger.info(f"Generated {chart_type} chart -> {result['path']}")
+
             results.append(result)
+
+        logger.info(
+            f"Visualization generation done: {len(results)} charts created")
 
         return results
 

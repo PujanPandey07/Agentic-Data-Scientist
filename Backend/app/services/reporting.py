@@ -1,12 +1,18 @@
 import json
 import os
+import logging
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 class ReportingService:
     """Deterministic report builder. Aggregates all pipeline results."""
 
     def generate_report(self, state: dict) -> dict:
+        logger.info(
+            f"Generating final report for dataset {state.get('dataset_id')}")
+
         report = {
             "generated_at": datetime.utcnow().isoformat() + "Z",
             "user_query": state.get("user_query") or "N/A",
@@ -37,6 +43,12 @@ class ReportingService:
             json.dump(report, f, indent=2, default=str)
 
         report["report_path"] = report_path
+
+        logger.info(
+            f"Report saved to {report_path} "
+            f"(recommendation: {report['conclusions'].get('recommendation', 'N/A')})"
+        )
+
         return report
 
     def _get_problem_type(self, state: dict) -> str:

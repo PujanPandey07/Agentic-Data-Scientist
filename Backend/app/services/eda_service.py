@@ -1,6 +1,9 @@
 from typing import Any
+import logging
 import pandas as pd
 from graphs.state import GraphState
+
+logger = logging.getLogger(__name__)
 
 
 class EDAService:
@@ -14,7 +17,11 @@ class EDAService:
         """
 
         if dataframe is None or dataframe.empty:
+            logger.error("EDA called on an empty or missing dataset")
             raise ValueError("Cannot perform EDA on an empty dataset.")
+
+        logger.info(
+            f"Starting EDA: {len(dataframe)} rows, {len(dataframe.columns)} columns")
 
         numerical_df = dataframe.select_dtypes(include="number")
         categorical_df = dataframe.select_dtypes(
@@ -66,6 +73,11 @@ class EDAService:
             "missing_values": dataframe.isnull().sum().to_dict(),
             "correlation": correlation,
         }
+
+        logger.info(
+            f"EDA done: {len(numerical_df.columns)} numerical cols, "
+            f"{len(categorical_df.columns)} categorical cols"
+        )
 
         return eda_report
 

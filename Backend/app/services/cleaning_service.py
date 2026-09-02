@@ -1,10 +1,15 @@
 import pandas as pd
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class CleaningService:
 
     def clean_dataset(self, dataframe: pd.DataFrame):
         original_rows = len(dataframe)
+        logger.info(
+            f"Starting cleaning: {original_rows} rows, {len(dataframe.columns)} columns")
 
         dataframe = self.remove_duplicates(dataframe)
         dataframe = self.handle_missing_values(dataframe)
@@ -16,6 +21,7 @@ class CleaningService:
             "duplicates_removed": original_rows - len(dataframe),
             "missing_values_remaining": int(dataframe.isnull().sum().sum()),
         }
+        logger.info(f"Cleaning done: {report}")
 
         return dataframe, report
 
@@ -24,7 +30,11 @@ class CleaningService:
         dataframe: pd.DataFrame
     ) -> pd.DataFrame:
 
-        return dataframe.drop_duplicates().reset_index(drop=True)
+        before = len(dataframe)
+        dataframe = dataframe.drop_duplicates().reset_index(drop=True)
+        logger.info(f"Removed {before - len(dataframe)} duplicate rows")
+
+        return dataframe
 
     def handle_missing_values(
         self,
@@ -46,6 +56,7 @@ class CleaningService:
                 dataframe[column] = dataframe[column].fillna(
                     dataframe[column].median()
                 )
+                logger.info(f"Filled missing values in '{column}' with median")
 
         for column in categorical_columns:
             if dataframe[column].isna().any():
@@ -55,10 +66,14 @@ class CleaningService:
                     dataframe[column] = dataframe[column].fillna(
                         mode.iloc[0]
                     )
+                    logger.info(
+                        f"Filled missing values in '{column}' with mode")
                 else:
                     dataframe[column] = dataframe[column].fillna(
                         "Unknown"
                     )
+                    logger.info(
+                        f"Filled missing values in '{column}' with 'Unknown'")
 
         return dataframe
 

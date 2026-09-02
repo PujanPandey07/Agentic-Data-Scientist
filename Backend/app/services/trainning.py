@@ -1,4 +1,5 @@
 import time
+import logging
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import cross_val_score, train_test_split
@@ -13,6 +14,8 @@ from schema.model_selection import ModelSelectionPlan, ModelCandidate
 import os
 import joblib
 
+logger = logging.getLogger(__name__)
+
 
 class TrainingService:
     """Deterministic model trainer. Executes the ModelSelectionPlan sequentially."""
@@ -24,6 +27,8 @@ class TrainingService:
         """
         # Separate features and target
         if target_column not in df.columns:
+            logger.error(
+                f"Target column '{target_column}' not found in dataframe")
             raise ValueError(
                 f"Target column '{target_column}' not found in dataframe")
 
@@ -33,6 +38,11 @@ class TrainingService:
         # Determine if classification or regression from metric name
         is_classification = self._is_classification_metric(plan.scoring_metric)
 
+        logger.info(
+            f"Starting training: {len(plan.candidates)} candidates, "
+            f"classification={is_classification}, metric={plan.scoring_metric}"
+        )
+
         # Encode target if classification and string labels
         y_encoded = self._encode_target(y, is_classification)
 
@@ -40,6 +50,9 @@ class TrainingService:
         X_sample, y_sample, used_sampling = self._sample_data(
             X, y_encoded, plan.sample_size, is_classification
         )
+        if used_sampling:
+            logger.info(
+                f"Sampled data for candidate selection: {X_sample.shape}")
 
         # Train candidates sequentially
         results = []
@@ -59,6 +72,8 @@ class TrainingService:
                     "status": "skipped",
                     "reason": "Time budget exceeded",
                 })
+                logger.warning(
+                    f"Skipped '{candidate.algorithm}': time budget exceeded")
                 continue
 
             start_time = time.time()
@@ -93,6 +108,10 @@ class TrainingService:
                     "reason": candidate.reason,
                 }
                 results.append(result)
+                logger.info(
+                    f"'{candidate.algorithm}' scored {round(mean_score, 5)} "
+                    f"(+/- {round(std_score, 5)}) in {round(elapsed, 2)}s"
+                )
 
                 # Track best
                 if mean_score > best_score:
@@ -110,11 +129,16 @@ class TrainingService:
                     "error": str(e),
                     "actual_time_seconds": round(elapsed, 2),
                 })
+                logger.warning(f"'{candidate.algorithm}' failed: {e}")
 
         # If no model succeeded, raise
         if best_model is None:
+            logger.error("All candidate models failed")
             raise RuntimeError(
                 "All candidate models failed. Check logs for details.")
+
+        logger.info(
+            f"Best candidate: {best_candidate.algorithm} (score={round(best_score, 5)})")
 
         # Retrain best model on FULL data
         if used_sampling:
@@ -151,6 +175,8 @@ class TrainingService:
         model_path = f"outputs/models/{dataset_id}_best_model.pkl"
         joblib.dump(final_model, model_path)
         report["model_path"] = model_path
+
+        logger.info(f"Training done, model saved to {model_path}")
 
         return final_model, report, best_candidate
 

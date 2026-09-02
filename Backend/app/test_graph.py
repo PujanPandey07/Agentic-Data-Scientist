@@ -1,6 +1,10 @@
 import asyncio
 # or however you import your compiled graph
 from graphs.workflow import graph
+from logging_config import setup_logging
+
+
+setup_logging()
 
 
 async def main():

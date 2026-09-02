@@ -7,21 +7,29 @@ from sklearn.metrics import (
 import seaborn as sns
 import matplotlib.pyplot as plt
 import os
+import logging
 import pandas as pd
 import numpy as np
 import joblib
 import matplotlib
 matplotlib.use("Agg")
 
+logger = logging.getLogger(__name__)
+
 
 class EvaluationService:
     def evaluate(self, df, target_column, model_path, problem_type):
+        logger.info(
+            f"Starting evaluation: model={model_path}, problem_type={problem_type}")
+
         if not os.path.exists(model_path):
+            logger.error(f"Model not found: {model_path}")
             raise FileNotFoundError(f"Model not found: {model_path}")
 
         model = joblib.load(model_path)
 
         if target_column not in df.columns:
+            logger.error(f"Target column '{target_column}' not found")
             raise ValueError(f"Target column '{target_column}' not found")
 
         X = df.drop(columns=[target_column])
@@ -31,6 +39,8 @@ class EvaluationService:
         if problem_type == "classification" and not pd.api.types.is_numeric_dtype(y):
             le = LabelEncoder()
             y_encoded = le.fit_transform(y)
+            logger.info(
+                f"Label-encoded target '{target_column}' for classification")
 
         y_pred = model.predict(X)
 
@@ -52,6 +62,8 @@ class EvaluationService:
         bc_path = self._plot_boosting_curve(model)
         if bc_path:
             artifacts["boosting_curve_path"] = bc_path
+
+        logger.info(f"Evaluation done: {metrics}")
 
         return {
             "problem_type": problem_type,
@@ -95,7 +107,7 @@ class EvaluationService:
             plt.close()
             return path
         except Exception as e:
-            print(f"Learning curve failed: {e}")
+            logger.warning(f"Learning curve failed: {e}")
             return None
 
     def _plot_boosting_curve(self, model):
@@ -123,7 +135,7 @@ class EvaluationService:
             plt.close()
             return path
         except Exception as e:
-            print(f"Boosting curve failed: {e}")
+            logger.warning(f"Boosting curve failed: {e}")
             return None
 
     def _classification_metrics(self, y_true, y_pred):

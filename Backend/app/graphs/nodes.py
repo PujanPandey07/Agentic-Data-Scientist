@@ -1,4 +1,6 @@
 
+from llm.provider import get_llm
+from agents.intent_router import intent_router_agent
 from services.hyper_parameters_tuning import HyperparameterTuningService
 from services.reporting import ReportingService
 from services.evaluation import EvaluationService
@@ -423,3 +425,39 @@ async def hyperparameter_tuning_node(state):
         f"Top param: {top_param}"
     )
     return advance_execution(state, "hyperparameter_tuning", msg)
+
+
+async def intent_router_node(state):
+    classification = await intent_router_agent.classify(
+        user_query=state.get("user_query", ""),
+        has_prior_report=state.get("final_report") is not None,
+    )
+    state["intent"] = classification.intent
+    return state
+
+
+def route_intent(state):
+    intent = state.get("intent")
+    if intent == "run_pipeline":
+        return "run_pipeline"
+    return "direct_answer"  # explain_result and general_question both go here for now
+
+
+async def direct_answer_node(state):
+    """Simple LLM answer, no structured output — used for explain_result / general_question."""
+    llm = get_llm()
+
+    context = ""
+    if state.get("final_report"):
+        context = f"\nPrevious analysis report: {state['final_report']}"
+
+    messages = [
+        {"role": "system", "content": "Answer the user's question directly and concisely."},
+        {"role": "user", "content": f"{state.get('user_query', '')}{context}"},
+    ]
+
+    response = await llm.ainvoke(messages)
+    state["direct_answer"] = response.content
+    print(
+        f"\n========== DIRECT ANSWER ==========\n{response.content}\n====================================\n")
+    return state

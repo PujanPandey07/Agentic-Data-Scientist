@@ -1,16 +1,25 @@
 import asyncio
-# or however you import your compiled graph
-from graphs.workflow import graph
+from graphs.workflow import builder
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from logging_config import setup_logging
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+import aiosqlite
 
 
 setup_logging()
 
 
 async def main():
-    # Initial state
+    # ---------------------------------------------------------------
+    # Pick which query to test by uncommenting one of these:
+    # ---------------------------------------------------------------
+    # -> should trigger run_pipeline
+    # user_query = "Build a classification model on the Iris dataset"
+    # -> should trigger direct_answer
+    user_query = "What does F1 score mean?"
+
     initial_state = {
-        "user_query": "Build a classification model on the Iris dataset",
+        "user_query": user_query,
         "dataset_id": "08f054c7-0d54-4db4-95db-b84616f7bf25",
         "dataframe": None,
         "dataset_summary": None,
@@ -25,15 +34,34 @@ async def main():
         "remaining_tasks": [],
         "completed_tasks": [],
         "execution_logs": [],
+        "intent": None,
+        "direct_answer": None,
     }
 
     print("\n========== RUNNING FULL GRAPH ==========\n")
 
-    # Run the graph
-    final_state = await graph.ainvoke(initial_state)
+    async with aiosqlite.connect("checkpoints.sqlite") as conn:
+        checkpointer = AsyncSqliteSaver(
+            conn,
+            serde=JsonPlusSerializer(pickle_fallback=True),
+        )
+        graph = builder.compile(checkpointer=checkpointer)
+
+        config = {"configurable": {"thread_id": initial_state["dataset_id"]}}
+        final_state = await graph.ainvoke(initial_state, config=config)
 
     print("\n========== FINAL STATE ==========\n")
 
+    print(f"INTENT: {final_state.get('intent')}")
+
+    # If the intent router short-circuited to a direct answer,
+    # there's nothing else in the pipeline to print — stop here.
+    if final_state.get("direct_answer"):
+        print(f"\nDIRECT ANSWER:\n{final_state['direct_answer']}")
+        print("\n========== DONE ==========\n")
+        return
+
+    # Otherwise, this was a full run_pipeline execution — print everything as before.
     print(f"COMPLETED TASKS: {final_state['completed_tasks']}")
     print(f"CURRENT TASK: {final_state['current_task']}")
     print(f"REMAINING TASKS: {final_state['remaining_tasks']}")

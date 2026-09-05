@@ -1,6 +1,10 @@
+import logging
 from schema.visualization_plan import VisualizationPlanResponse
 from prompts.visualization_prompt import visualization_prompt
 from llm.provider import get_llm
+from utilis.llm_plan import invoke_with_repair
+
+logger = logging.getLogger(__name__)
 
 
 class VisualizationPlannerAgent:
@@ -16,6 +20,7 @@ class VisualizationPlannerAgent:
         dataset_summary,
         eda_report: dict,
     ) -> VisualizationPlanResponse:
+        logger.info("Starting visualization planning")
 
         messages = [
             {
@@ -37,7 +42,10 @@ EDA Report:
             },
         ]
 
-        response = await self.llm.ainvoke(messages)
+        response = await invoke_with_repair(self.llm, messages)
+
+        logger.info(
+            f"Visualization plan generated: {len(response.visualizations)} charts")
 
         return response
 

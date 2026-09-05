@@ -1,6 +1,14 @@
 from langgraph.graph import START, END, StateGraph
 
-from graphs.nodes import dataset_node, planner_node, initialize_execution_node, advance_execution, router, cleaning_node, eda_node, visualization_node, feature_engineering_node, training_node, evaluation_node, reporting_node, route_task, planner_agent, visualization_planner_node, feature_engineering_planner_node, feature_engineering_node, model_selection_planner_node, training_node, evaluation_node, reporting_node, hyperparameter_tuning_node
+from graphs.nodes import (
+    dataset_node, planner_node, initialize_execution_node, advance_execution,
+    router, cleaning_node, eda_node, visualization_node, feature_engineering_node,
+    training_node, evaluation_node, reporting_node, route_task, planner_agent,
+    visualization_planner_node, feature_engineering_planner_node, feature_engineering_node,
+    model_selection_planner_node, training_node, evaluation_node, reporting_node,
+    hyperparameter_tuning_node,
+    intent_router_node, route_intent, direct_answer_node,  # NEW
+)
 
 from graphs.state import GraphState
 
@@ -24,10 +32,23 @@ builder.add_node("feature_engineering_planner",
                  feature_engineering_planner_node)
 builder.add_node("feature_engineering", feature_engineering_node)
 builder.add_node("hyperparameter_tuning", hyperparameter_tuning_node)
+builder.add_node("intent_router", intent_router_node)
+builder.add_node("direct_answer", direct_answer_node)
 
 
 # Define workflow
-builder.add_edge(START, "dataset")
+builder.add_edge(START, "intent_router")
+builder.add_conditional_edges(
+    "intent_router",
+    route_intent,
+    {
+        "run_pipeline": "dataset",
+        "direct_answer": "direct_answer",
+    },
+)
+builder.add_edge("direct_answer", END)
+
+
 builder.add_edge("dataset", "planner")
 builder.add_edge("planner", "initialize_execution")
 builder.add_edge("initialize_execution", "router")
@@ -62,5 +83,7 @@ builder.add_edge("hyperparameter_tuning", "router")
 builder.add_edge("evaluation", "router")
 builder.add_edge("reporting", "router")
 
-# Compile graph
-graph = builder.compile()
+# NOTE: no compile() here anymore — compiling (with the checkpointer)
+# now happens in test_graph.py, inside async code where an event loop
+# actually exists. AsyncSqliteSaver requires a running loop at creation
+# time, which doesn't exist yet when this file is first imported.

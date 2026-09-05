@@ -1,6 +1,10 @@
+import logging
 from llm.provider import get_llm
 from schema.model_selection import ModelSelectionPlan
 from prompts.model_selection import MODEL_SELECTION_PLANNER_PROMPT
+from utilis.llm_plan import invoke_with_repair
+
+logger = logging.getLogger(__name__)
 
 
 class ModelSelectionPlannerAgent:
@@ -14,6 +18,8 @@ class ModelSelectionPlannerAgent:
         eda_report: dict,
         feature_engineering_report: dict | None,
     ) -> ModelSelectionPlan:
+        logger.info("Starting model selection planning")
+
         # Build user content with all available evidence
         fe_section = ""
         if feature_engineering_report:
@@ -32,5 +38,9 @@ Generate the model selection plan now."""
             {"role": "user", "content": user_content},
         ]
 
-        response = await self.llm.ainvoke(messages)
+        response = await invoke_with_repair(self.llm, messages)
+
+        logger.info(
+            f"Model selection plan generated: {len(response.candidates)} candidates")
+
         return response

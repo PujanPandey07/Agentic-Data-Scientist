@@ -13,7 +13,9 @@ class GraphState(TypedDict):
     # User Input
     user_query: str
     dataset_id: str
-    target_column: str | None        # NEW — set by main planner
+    target_column: str | None
+    intent: str | None
+    direct_answer: str | None
 
     # Dataset
     dataframe: pd.DataFrame | None

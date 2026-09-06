@@ -1,4 +1,5 @@
 import time
+import logging
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import cross_val_score, train_test_split
@@ -13,6 +14,8 @@ from schema.model_selection import ModelSelectionPlan, ModelCandidate
 import os
 import joblib
 
+logger = logging.getLogger(__name__)
+
 
 class TrainingService:
     """Deterministic model trainer. Executes the ModelSelectionPlan sequentially."""
@@ -24,6 +27,8 @@ class TrainingService:
         """
         # Separate features and target
         if target_column not in df.columns:
+            logger.error(
+                f"Target column '{target_column}' not found in dataframe")
             raise ValueError(
                 f"Target column '{target_column}' not found in dataframe")
 
@@ -33,6 +38,11 @@ class TrainingService:
         # Determine if classification or regression from metric name
         is_classification = self._is_classification_metric(plan.scoring_metric)
 
+        logger.info(
+            f"Starting training: {len(plan.candidates)} candidates, "
+            f"classification={is_classification}, metric={plan.scoring_metric}"
+        )
+
         # Encode target if classification and string labels
         y_encoded = self._encode_target(y, is_classification)
 
@@ -40,6 +50,9 @@ class TrainingService:
         X_sample, y_sample, used_sampling = self._sample_data(
             X, y_encoded, plan.sample_size, is_classification
         )
+        if used_sampling:
+            logger.info(
+                f"Sampled data for candidate selection: {X_sample.shape}")
 
         # Train candidates sequentially
         results = []
@@ -59,6 +72,8 @@ class TrainingService:
                     "status": "skipped",
                     "reason": "Time budget exceeded",
                 })
+                logger.warning(
+                    f"Skipped '{candidate.algorithm}': time budget exceeded")
                 continue
 
             start_time = time.time()
@@ -93,6 +108,10 @@ class TrainingService:
                     "reason": candidate.reason,
                 }
                 results.append(result)
+                logger.info(
+                    f"'{candidate.algorithm}' scored {round(mean_score, 5)} "
+                    f"(+/- {round(std_score, 5)}) in {round(elapsed, 2)}s"
+                )
 
                 # Track best
                 if mean_score > best_score:
@@ -110,11 +129,57 @@ class TrainingService:
                     "error": str(e),
                     "actual_time_seconds": round(elapsed, 2),
                 })
+                logger.warning(f"'{candidate.algorithm}' failed: {e}")
 
         # If no model succeeded, raise
         if best_model is None:
+            logger.error("All candidate models failed")
             raise RuntimeError(
                 "All candidate models failed. Check logs for details.")
+
+        logger.info(
+            f"Best candidate: {best_candidate.algorithm} (score={round(best_score, 5)})")
+
+        # ------------------------------------------------------------- #
+        # Forced algorithm override
+        #
+        # If the user's query explicitly named an algorithm, the planner
+        # sets plan.forced_algorithm. We still trained every candidate
+        # above for honest comparison/reporting, but the final selection
+        # must honor the user's explicit instruction regardless of how
+        # it scored against the alternatives.
+        # ------------------------------------------------------------- #
+        forced_override_applied = False
+        forced_algorithm = getattr(plan, "forced_algorithm", None)
+
+        if forced_algorithm:
+            forced_result = next(
+                (r for r in results if r["algorithm"] ==
+                 forced_algorithm and r["status"] == "success"),
+                None,
+            )
+            if forced_result is not None:
+                forced_candidate = next(
+                    c for c in candidates if c.algorithm == forced_algorithm
+                )
+                if forced_algorithm != best_candidate.algorithm:
+                    logger.info(
+                        f"User explicitly requested '{forced_algorithm}' "
+                        f"(scored {forced_result['mean_cv_score']}) — overriding "
+                        f"CV-selected winner '{best_candidate.algorithm}' "
+                        f"(scored {round(best_score, 5)})"
+                    )
+                best_candidate = forced_candidate
+                best_score = forced_result["mean_cv_score"]
+                best_model = self._get_model(
+                    forced_candidate, is_classification)
+                forced_override_applied = True
+            else:
+                logger.warning(
+                    f"User requested '{forced_algorithm}' but it failed to train "
+                    f"or wasn't among candidates — falling back to CV-selected "
+                    f"winner '{best_candidate.algorithm}'"
+                )
 
         # Retrain best model on FULL data
         if used_sampling:
@@ -142,6 +207,8 @@ class TrainingService:
             "best_mean_cv_score": round(best_score, 5),
             "best_hyperparams": best_candidate.hyperparams,
             "best_reason": best_candidate.reason,
+            "forced_algorithm": forced_algorithm,
+            "forced_override_applied": forced_override_applied,
             "retrain_note": retrain_note,
             "notes": plan.notes,
         }
@@ -151,6 +218,8 @@ class TrainingService:
         model_path = f"outputs/models/{dataset_id}_best_model.pkl"
         joblib.dump(final_model, model_path)
         report["model_path"] = model_path
+
+        logger.info(f"Training done, model saved to {model_path}")
 
         return final_model, report, best_candidate
 
@@ -232,8 +301,11 @@ class TrainingService:
                     raise ImportError(
                         "lightgbm not installed. Run: pip install lightgbm")
             elif algo == "svm_rbf":
+                # Filter out kernel
+                params = {k: v for k, v in params.items() if k != "kernel"}
                 return SVC(kernel="rbf", **params)
             elif algo == "svm_linear":
+                params = {k: v for k, v in params.items() if k != "kernel"}
                 return SVC(kernel="linear", **params)
             elif algo == "neural_network_mlp":
                 return MLPClassifier(**params)

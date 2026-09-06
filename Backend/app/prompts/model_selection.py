@@ -75,6 +75,18 @@ TIME BUDGET RULE:
 - thorough strategy: 15-30 minutes
 - If a single candidate's estimated_time exceeds the budget, exclude it or downgrade strategy.
 
+## forced_algorithm
+If the user's query explicitly names a specific algorithm they want used
+(e.g. "use XGBoost", "try a random forest", "I want logistic regression"),
+set `forced_algorithm` to that algorithm's literal value. This algorithm
+MUST still be included in `candidates` (so it gets trained and its real
+score reported), but the training service will select it as the winner
+regardless of how it compares to the other candidates.
+
+If the user's query is a general request ("find the best model", "build
+a classifier") with no named algorithm, leave `forced_algorithm` as None
+and let comparison decide the winner as usual.
+
 OUTPUT: A ModelSelectionPlan with:
   - strategy: "quick" | "standard" | "thorough"
   - sample_size: null or 100000

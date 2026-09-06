@@ -1,9 +1,12 @@
 import pandas as pd
 import numpy as np
+import logging
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler, PolynomialFeatures
 from sklearn.feature_selection import VarianceThreshold
 
 from schema.feature_planner import FeatureEngineeringPlan, FeatureEngineeringStep
+
+logger = logging.getLogger(__name__)
 
 
 class FeatureEngineeringService:
@@ -28,6 +31,7 @@ class FeatureEngineeringService:
 
         # Safety check: empty plan
         if not plan or not plan.steps:
+            logger.info("Empty feature engineering plan, nothing to execute")
             return current_df, {
                 "original_shape": original_shape,
                 "final_shape": original_shape,
@@ -40,6 +44,11 @@ class FeatureEngineeringService:
                 "warnings": plan.warnings if plan else [],
                 "notes": plan.notes if plan else [],
             }
+
+        logger.info(
+            f"Starting feature engineering: {len(plan.steps)} steps planned, "
+            f"strategy={plan.strategy}, shape={original_shape}"
+        )
 
         # Execute each step in order
         for step in plan.steps:
@@ -54,6 +63,8 @@ class FeatureEngineeringService:
                 })
                 all_added.extend(result.get("columns_added", []))
                 all_removed.extend(result.get("columns_removed", []))
+                logger.info(
+                    f"Step '{step.action}' succeeded: {result.get('details', '')}")
             except Exception as e:
                 # Fault isolation: one step fails, pipeline continues
                 report_steps.append({
@@ -62,6 +73,7 @@ class FeatureEngineeringService:
                     "status": "failed",
                     "error": str(e),
                 })
+                logger.warning(f"Step '{step.action}' failed, skipped: {e}")
 
         final_shape = current_df.shape
 
@@ -77,6 +89,11 @@ class FeatureEngineeringService:
             "warnings": plan.warnings,
             "notes": plan.notes,
         }
+
+        logger.info(
+            f"Feature engineering done: {report['steps_executed']} succeeded, "
+            f"{report['steps_failed']} failed, final shape={final_shape}"
+        )
 
         return current_df, report
 

@@ -1,4 +1,10 @@
+from langgraph.types import interrupt
+from fastapi import logger
 
+from agents.refine_target import refine_target_agent
+from llm.provider import get_llm
+from agents.intent_router import intent_router_agent
+from services.hyper_parameters_tuning import HyperparameterTuningService
 from services.reporting import ReportingService
 from services.evaluation import EvaluationService
 from services.trainning import TrainingService
@@ -17,15 +23,31 @@ from services.cleaning_service import CleaningService
 from services.executiopn_service import execution_service
 from agents.visualization_planner import visualization_planner_agent
 
+CASCADE_MAP = {
+    "cleaning": ["eda", "visualization", "feature_engineering", "model_selection", "hyperparameter_tuning", "evaluation", "reporting"],
+    "eda": ["visualization", "feature_engineering", "model_selection", "hyperparameter_tuning", "evaluation", "reporting"],
+    "visualization": ["reporting"],
+    "feature_engineering": ["model_selection", "hyperparameter_tuning", "evaluation", "reporting"],
+    "model_selection": ["hyperparameter_tuning", "evaluation", "reporting"],
+    "hyperparameter_tuning": ["evaluation", "reporting"],
+    "evaluation": ["reporting"],
+    "reporting": [],
+}
 
-def advance_execution(state, task_name: str, message: str):
 
+def advance_execution(state, task_name: str, message: str, status: str = "success"):
+    """
+    status="success" -> task actually ran and is recorded in completed_tasks.
+    status="skipped" -> task was skipped (e.g. missing inputs); logged but
+    NOT added to completed_tasks, so history reflects what really executed.
+    """
     print(f"Running {task_name} node...")
 
     execution_service.advance_task(
         state=state,
         completed_task=task_name,
-        message=message
+        message=message,
+        status=status,
     )
 
     return state
@@ -105,6 +127,8 @@ def route_task(state):
 
     if task == "visualization":
         return "visualization"
+    if task == "hyperparameter_tuning":
+        return "hyperparameter_tuning"
 
     if task == "evaluation":
         return "evaluation"
@@ -233,13 +257,13 @@ async def feature_engineering_node(state):
             "error": "Missing dataframe or feature engineering plan"
         }
         return advance_execution(
-            state, "feature_engineering", "Skipped: missing required inputs"
+            state, "feature_engineering", "Skipped: missing required inputs",
+            status="skipped",
         )
 
     service = FeatureEngineeringService()
     transformed_df, report = service.apply_plan(df, plan)
 
-    # The cleaned dataframe is replaced by the engineered dataframe
     state["dataframe"] = transformed_df
     state["feature_engineering_report"] = report
 
@@ -271,7 +295,7 @@ async def training_node(state):
     df = state.get("dataframe")
     plan = state.get("model_selection_plan")
     target_column = state.get("target_column")
-    dataset_id = state.get("dataset_id")  # <-- THIS WAS MISSING
+    dataset_id = state.get("dataset_id")
 
     print(f"DEBUG: df shape = {df.shape if df is not None else None}")
     print(f"DEBUG: plan = {plan is not None}")
@@ -282,7 +306,10 @@ async def training_node(state):
         state["training_report"] = {
             "error": "Missing dataframe, model selection plan, or target column"
         }
-        return advance_execution(state, "model_selection", "Skipped: missing required inputs")
+        return advance_execution(
+            state, "model_selection", "Skipped: missing required inputs",
+            status="skipped",
+        )
 
     service = TrainingService()
 
@@ -291,7 +318,7 @@ async def training_node(state):
         df=df,
         plan=plan,
         target_column=target_column,
-        dataset_id=dataset_id,  # <-- NOW THIS WORKS
+        dataset_id=dataset_id,
     )
     print(f"DEBUG: Training done! Best: {best_candidate.algorithm}")
 
@@ -317,13 +344,19 @@ async def evaluation_node(state):
         state["evaluation_report"] = {
             "error": "Missing dataframe, target column, or trained model path"
         }
-        return advance_execution(state, "evaluation", "Skipped: missing required inputs")
+        return advance_execution(
+            state, "evaluation", "Skipped: missing required inputs",
+            status="skipped",
+        )
 
     if not os.path.exists(model_path):
         state["evaluation_report"] = {
             "error": f"Model file not found: {model_path}"
         }
-        return advance_execution(state, "evaluation", "Skipped: model file missing")
+        return advance_execution(
+            state, "evaluation", "Skipped: model file missing",
+            status="skipped",
+        )
 
     problem_type = analysis_plan.problem_type if analysis_plan else "classification"
 
@@ -366,3 +399,182 @@ async def reporting_node(state):
         f"(accuracy: {report['conclusions'].get('final_accuracy', 'N/A')})"
     )
     return advance_execution(state, "reporting", msg)
+
+
+async def hyperparameter_tuning_node(state):
+    df = state.get("dataframe")
+    plan = state.get("model_selection_plan")
+    training_report = state.get("training_report")
+    target_column = state.get("target_column")
+    dataset_id = state.get("dataset_id")
+    analysis_plan = state.get("analysis_plan")
+
+    if df is None or plan is None or training_report is None or target_column is None or dataset_id is None:
+        state["hyperparameter_tuning_report"] = {
+            "status": "skipped", "reason": "missing inputs"}
+        state["tuned_model_path"] = state.get("trained_model_path")
+        return advance_execution(
+            state, "hyperparameter_tuning", "Skipped: missing inputs",
+            status="skipped",
+        )
+
+    # Skip for quick strategy
+    if plan.strategy == "quick":
+        state["hyperparameter_tuning_report"] = {
+            "status": "skipped", "reason": "quick strategy"}
+        state["tuned_model_path"] = state.get("trained_model_path")
+        return advance_execution(
+            state, "hyperparameter_tuning", "Skipped: quick strategy",
+            status="skipped",
+        )
+
+    best_algorithm = training_report.get("best_algorithm")
+    best_candidate = next(
+        (c for c in plan.candidates if c.algorithm == best_algorithm), None)
+    if not best_candidate:
+        state["hyperparameter_tuning_report"] = {
+            "status": "skipped", "reason": "best candidate not found"}
+        state["tuned_model_path"] = state.get("trained_model_path")
+        return advance_execution(
+            state, "hyperparameter_tuning", "Skipped: candidate not found",
+            status="skipped",
+        )
+
+    # analysis_plan may legitimately be None on a thread that's only ever
+    # been driven via refine_step (never went through planner_node).
+    # Default rather than assume, same as evaluation_node does.
+    problem_type = analysis_plan.problem_type if analysis_plan else "classification"
+
+    service = HyperparameterTuningService()
+    tuned_model, report = service.tune(
+        df=df,
+        target_column=target_column,
+        best_candidate=best_candidate,
+        problem_type=problem_type,
+        dataset_id=dataset_id,
+        max_trials=20 if plan.strategy == "standard" else 50,
+        time_budget_seconds=120 if plan.strategy == "standard" else 300,
+    )
+
+    state["hyperparameter_tuning_report"] = report
+    state["tuned_model_path"] = report["tuned_model_path"]
+
+    top_param = max(report["param_importance"],
+                    key=report["param_importance"].get) if report["param_importance"] else "N/A"
+    msg = (
+        f"Tuning complete. Score: {report['best_trial_score']}. "
+        f"Trials: {report['num_trials_completed']}. "
+        f"Top param: {top_param}"
+    )
+    return advance_execution(state, "hyperparameter_tuning", msg)
+
+
+async def intent_router_node(state):
+    has_prior_report = state.get("final_report") is not None
+
+    classification = await intent_router_agent.classify(
+        user_query=state.get("user_query", ""),
+        has_prior_report=has_prior_report,
+    )
+
+    intent = classification.intent
+
+    if intent in ("explain_result", "refine_step") and not has_prior_report:
+        logger.warning(
+            f"LLM returned '{intent}' with no prior report — overriding to general_question"
+        )
+        intent = "general_question"
+        state["no_prior_analysis"] = True
+
+    state["intent"] = intent
+    return state
+
+
+async def direct_answer_node(state):
+    llm = get_llm()
+
+    if state.get("no_prior_analysis"):
+        context = (
+            "\nNote: the user seems to be referring to a previous analysis, "
+            "but none exists yet in this session. Gently let them know they "
+            "need to run an analysis first before you can explain or refine anything."
+        )
+    elif state.get("final_report"):
+        context = f"\nPrevious analysis report: {state['final_report']}"
+    else:
+        context = ""
+
+    messages = [
+        {"role": "system", "content": "Answer the user's question directly and concisely."},
+        {"role": "user", "content": f"{state.get('user_query', '')}{context}"},
+    ]
+
+    response = await llm.ainvoke(messages)
+    state["direct_answer"] = response.content
+    print(
+        f"\n========== DIRECT ANSWER ==========\n{response.content}\n====================================\n")
+    return state
+
+
+async def refine_target_node(state):
+    result = await refine_target_agent.identify(state.get("user_query", ""))
+
+    state["refine_target"] = result.target_stage
+    state["refine_instruction"] = result.instruction
+    state["refine_confidence"] = result.confidence
+
+    print(f"\n========== REFINE TARGET (Step 1 — not yet confirmed) ==========")
+    print(f"Stage: {result.target_stage}")
+    print(f"Instruction: {result.instruction}")
+    print(f"Confidence: {result.confidence}")
+    print(f"Would also rerun: {CASCADE_MAP[result.target_stage]}")
+    print("====================================\n")
+
+    return state
+
+
+def route_intent(state):
+    intent = state.get("intent")
+    if intent == "run_pipeline":
+        return "run_pipeline"
+    if intent == "refine_step":
+        return "refine_step"
+    return "direct_answer"
+
+
+async def confirm_refinement_node(state):
+    decision = interrupt({
+        "question": "Proceed with this refinement?",
+        "stage": state.get("refine_target"),
+        "instruction": state.get("refine_instruction"),
+        "confidence": state.get("refine_confidence"),
+    })
+    state["refine_confirmed"] = decision
+
+    if decision:
+        # refine_step never routes through dataset_node, so a thread that's
+        # only ever been driven via refine_step has no dataframe in its
+        # checkpoint yet. Reload it here rather than silently cascading
+        # through every node's "missing input" skip branch.
+        if state.get("dataframe") is None:
+            print("DEBUG: dataframe missing before cascade — reloading from dataset_id")
+            dataframe = dataset_service.load_dataset(state["dataset_id"])
+            state["dataframe"] = dataframe
+            if state.get("dataset_summary") is None:
+                state["dataset_summary"] = dataset_inspector.inspect(dataframe)
+
+        target = state.get("refine_target")
+        state["current_task"] = target
+        state["remaining_tasks"] = CASCADE_MAP.get(target, [])
+        state["completed_tasks"] = state.get("completed_tasks") or []
+
+    return state
+
+
+def route_after_confirmation(state):
+    return "router" if state.get("refine_confirmed") else "cancelled"
+
+
+async def refinement_cancelled_node(state):
+    print("\nRefinement cancelled by user. No changes made.\n")
+    return state

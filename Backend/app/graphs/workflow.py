@@ -1,13 +1,13 @@
 from langgraph.graph import START, END, StateGraph
 
 from graphs.nodes import (
-    dataset_node, planner_node, initialize_execution_node, advance_execution,
+    confirm_refinement_node, dataset_node, planner_node, initialize_execution_node, advance_execution, refinement_cancelled_node, route_after_confirmation,
     router, cleaning_node, eda_node, visualization_node, feature_engineering_node,
     training_node, evaluation_node, reporting_node, route_task, planner_agent,
     visualization_planner_node, feature_engineering_planner_node, feature_engineering_node,
     model_selection_planner_node, training_node, evaluation_node, reporting_node,
     hyperparameter_tuning_node,
-    intent_router_node, route_intent, direct_answer_node,  # NEW
+    intent_router_node, route_intent, direct_answer_node,  refine_target_node
 )
 
 from graphs.state import GraphState
@@ -34,7 +34,9 @@ builder.add_node("feature_engineering", feature_engineering_node)
 builder.add_node("hyperparameter_tuning", hyperparameter_tuning_node)
 builder.add_node("intent_router", intent_router_node)
 builder.add_node("direct_answer", direct_answer_node)
-
+builder.add_node("refine_target", refine_target_node)
+builder.add_node("confirm_refinement", confirm_refinement_node)
+builder.add_node("refinement_cancelled", refinement_cancelled_node)
 
 # Define workflow
 builder.add_edge(START, "intent_router")
@@ -44,9 +46,18 @@ builder.add_conditional_edges(
     {
         "run_pipeline": "dataset",
         "direct_answer": "direct_answer",
+        "refine_step": "refine_target",
     },
 )
 builder.add_edge("direct_answer", END)
+builder.add_conditional_edges(
+    "confirm_refinement",
+    route_after_confirmation,
+    {
+        "router": "router",
+        "cancelled": "refinement_cancelled",
+    },
+)
 
 
 builder.add_edge("dataset", "planner")
@@ -83,7 +94,6 @@ builder.add_edge("hyperparameter_tuning", "router")
 builder.add_edge("evaluation", "router")
 builder.add_edge("reporting", "router")
 
-# NOTE: no compile() here anymore — compiling (with the checkpointer)
-# now happens in test_graph.py, inside async code where an event loop
-# actually exists. AsyncSqliteSaver requires a running loop at creation
-# time, which doesn't exist yet when this file is first imported.
+
+builder.add_edge("refine_target", "confirm_refinement")
+builder.add_edge("refinement_cancelled", END)

@@ -1,20 +1,16 @@
 {
-  "generated_at": "2026-09-05T09:17:56.932768Z",
-  "user_query": "Build a classification model on the Iris dataset",
+  "generated_at": "2026-09-06T07:57:13.467643Z",
+  "user_query": "only run data cleaning and visualizations",
   "dataset_id": "08f054c7-0d54-4db4-95db-b84616f7bf25",
-  "target_column": "species",
-  "problem_type": "classification",
+  "target_column": "N/A",
+  "problem_type": "unknown",
   "pipeline_status": {
     "completed_tasks": [
       "cleaning",
       "eda",
-      "visualization",
-      "feature_engineering",
-      "model_selection",
-      "hyperparameter_tuning",
-      "evaluation"
+      "visualization"
     ],
-    "total_tasks": 7
+    "total_tasks": 3
   },
   "dataset_overview": {
     "final_shape": [
@@ -25,8 +21,8 @@
       "sepal_length",
       "sepal_width",
       "petal_length",
-      "species",
-      "species_encoded"
+      "petal_width",
+      "species"
     ]
   },
   "cleaning": {
@@ -146,208 +142,15 @@
     "num_charts": 0,
     "charts": []
   },
-  "feature_engineering": {
-    "original_shape": [
-      147,
-      5
-    ],
-    "final_shape": [
-      147,
-      5
-    ],
-    "strategy": "balanced",
-    "steps_executed": 3,
-    "steps_failed": 0,
-    "step_details": [
-      {
-        "action": "drop_high_correlation",
-        "columns": [
-          "petal_width"
-        ],
-        "status": "success",
-        "details": "Dropped highly correlated columns (|r| > 0.9): ['petal_width']"
-      },
-      {
-        "action": "standard_scale",
-        "columns": [
-          "sepal_length",
-          "sepal_width",
-          "petal_length"
-        ],
-        "status": "success",
-        "details": "Standard scaled ['sepal_length', 'sepal_width', 'petal_length']"
-      },
-      {
-        "action": "label_encode",
-        "columns": [
-          "species"
-        ],
-        "status": "success",
-        "details": "Label encoded ['species'] into ['species_encoded']"
-      }
-    ],
-    "columns_added": [
-      "species_encoded"
-    ],
-    "columns_removed": [
-      "petal_width"
-    ],
-    "warnings": [],
-    "notes": [
-      "Balanced strategy inferred from a standard modeling request.",
-      "No missing values or low\u2011variance columns detected; no imputation or binning needed.",
-      "Consider evaluating feature importance after model training; if petal_length alone suffices, you may drop additional features."
-    ]
-  },
-  "training": {
-    "strategy": "standard",
-    "sample_size": null,
-    "used_sampling": false,
-    "full_dataset_shape": [
-      147,
-      4
-    ],
-    "sample_shape": [
-      147,
-      4
-    ],
-    "cv_folds": 5,
-    "scoring_metric": "accuracy",
-    "time_budget_minutes": 8,
-    "time_spent_seconds": 1.04,
-    "candidates_results": [
-      {
-        "algorithm": "logistic_regression",
-        "status": "success",
-        "mean_cv_score": 1.0,
-        "std_cv_score": 0.0,
-        "cv_scores": [
-          1.0,
-          1.0,
-          1.0,
-          1.0,
-          1.0
-        ],
-        "estimated_time_seconds": 5,
-        "actual_time_seconds": 0.1,
-        "hyperparams": {
-          "C": 1,
-          "max_iter": 1000,
-          "multi_class": "multinomial",
-          "solver": "lbfgs"
-        },
-        "reason": "Dataset is tiny (147 rows) with only 3 numeric features after dropping highly correlated petal_width. Logistic Regression is a fast baseline that works well with scaled numeric data and balanced multi\u2011class targets. Scaling was applied in the feature engineering step, making LR appropriate."
-      },
-      {
-        "algorithm": "random_forest",
-        "status": "success",
-        "mean_cv_score": 1.0,
-        "std_cv_score": 0.0,
-        "cv_scores": [
-          1.0,
-          1.0,
-          1.0,
-          1.0,
-          1.0
-        ],
-        "estimated_time_seconds": 10,
-        "actual_time_seconds": 0.39,
-        "hyperparams": {
-          "max_depth": 5,
-          "n_estimators": 100,
-          "random_state": 42
-        },
-        "reason": "The EDA shows strong non\u2011linear relationships (e.g., petal_length vs. sepal_length). A shallow Random Forest captures such patterns while remaining quick to train on <1K rows. It also handles any residual correlation without extra preprocessing."
-      },
-      {
-        "algorithm": "xgboost",
-        "status": "success",
-        "mean_cv_score": 0.993103448275862,
-        "std_cv_score": 0.013793103448275845,
-        "cv_scores": [
-          1.0,
-          1.0,
-          1.0,
-          1.0,
-          0.9655172413793104
-        ],
-        "estimated_time_seconds": 15,
-        "actual_time_seconds": 0.54,
-        "hyperparams": {
-          "eval_metric": "mlogloss",
-          "learning_rate": 0.1,
-          "max_depth": 3,
-          "n_estimators": 100,
-          "num_class": 3,
-          "objective": "multi:softprob",
-          "seed": 42,
-          "verbosity": 0
-        },
-        "reason": "XGBoost provides a strong gradient\u2011boosted tree ensemble that often outperforms basic Random Forests on small, low\u2011dimensional data with non\u2011linear decision boundaries. The dataset size is tiny, so training time stays within the budget."
-      }
-    ],
-    "best_algorithm": "logistic_regression",
-    "best_mean_cv_score": 1.0,
-    "best_hyperparams": {
-      "C": 1,
-      "max_iter": 1000,
-      "multi_class": "multinomial",
-      "solver": "lbfgs"
-    },
-    "best_reason": "Dataset is tiny (147 rows) with only 3 numeric features after dropping highly correlated petal_width. Logistic Regression is a fast baseline that works well with scaled numeric data and balanced multi\u2011class targets. Scaling was applied in the feature engineering step, making LR appropriate.",
-    "retrain_note": "Best model trained on full dataset (no sampling needed).",
-    "notes": [
-      "Neural network (MLP) excluded: deep learning requires >1K rows to learn meaningful patterns.",
-      "SVM (linear or RBF) excluded: while feasible, we already have three strong candidates covering linear and non\u2011linear cases; adding SVM would exceed the maximum of 4 candidates.",
-      "LightGBM excluded: similar to XGBoost; we keep only one gradient\u2011boosted tree implementation to stay within the candidate limit."
-    ],
-    "model_path": "outputs/models/08f054c7-0d54-4db4-95db-b84616f7bf25_best_model.pkl"
-  },
-  "evaluation": {
-    "problem_type": "classification",
-    "num_samples": 147,
-    "num_features": 4,
-    "metrics": {
-      "accuracy": 1.0,
-      "precision_macro": 1.0,
-      "precision_weighted": 1.0,
-      "recall_macro": 1.0,
-      "recall_weighted": 1.0,
-      "f1_macro": 1.0,
-      "f1_weighted": 1.0
-    },
-    "artifacts": {
-      "confusion_matrix_path": "outputs/evaluation/confusion_matrix.png",
-      "confusion_matrix_values": [
-        [
-          48,
-          0,
-          0
-        ],
-        [
-          0,
-          50,
-          0
-        ],
-        [
-          0,
-          0,
-          49
-        ]
-      ],
-      "labels": [
-        "0",
-        "1",
-        "2"
-      ],
-      "learning_curve_path": "outputs/evaluation/learning_curve.png"
-    }
-  },
+  "feature_engineering": null,
+  "training": null,
+  "hyperparameter_tuning": null,
+  "evaluation": null,
   "conclusions": {
-    "best_model": "logistic_regression",
-    "cv_score": 1.0,
-    "final_accuracy": 1.0,
-    "final_f1": 1.0,
-    "recommendation": "Excellent model performance. Ready for deployment."
+    "best_model": "N/A",
+    "cv_score": "N/A",
+    "final_accuracy": null,
+    "final_f1": null,
+    "recommendation": "No model training was part of this run \u2014 see cleaning/EDA/visualization results above."
   }
 }

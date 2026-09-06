@@ -3,6 +3,7 @@ from graphs.workflow import builder
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from logging_config import setup_logging
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+from langgraph.types import Command
 import aiosqlite
 
 
@@ -16,27 +17,39 @@ async def main():
     # -> should trigger run_pipeline
     # user_query = "Build a classification model on the Iris dataset"
     # -> should trigger direct_answer
-    user_query = "What does F1 score mean?"
+    # user_query = "What does F1 score mean?"
+    # -> should trigger refine_step
+    user_query = "only run data cleaning and visualizations"
 
-    initial_state = {
-        "user_query": user_query,
-        "dataset_id": "08f054c7-0d54-4db4-95db-b84616f7bf25",
-        "dataframe": None,
-        "dataset_summary": None,
-        "analysis_plan": None,
-        "cleaning_report": None,
-        "eda_report": None,
-        "visualization_plan": None,
-        "visualization_results": None,
-        "feature_engineering_plan": None,
-        "feature_engineering_report": None,
-        "current_task": None,
-        "remaining_tasks": [],
-        "completed_tasks": [],
-        "execution_logs": [],
-        "intent": None,
-        "direct_answer": None,
-    }
+    dataset_id = "08f054c7-0d54-4db4-95db-b84616f7bf25"
+
+    is_first_run = False
+
+    if is_first_run:
+        graph_input = {
+            "user_query": user_query,
+            "dataset_id": dataset_id,
+            "dataframe": None,
+            "dataset_summary": None,
+            "analysis_plan": None,
+            "cleaning_report": None,
+            "eda_report": None,
+            "visualization_plan": None,
+            "visualization_results": None,
+            "feature_engineering_plan": None,
+            "feature_engineering_report": None,
+            "current_task": None,
+            "remaining_tasks": [],
+            "completed_tasks": [],
+            "execution_logs": [],
+            "intent": None,
+            "direct_answer": None,
+        }
+    else:
+        graph_input = {
+            "user_query": user_query,
+            "dataset_id": dataset_id,
+        }
 
     print("\n========== RUNNING FULL GRAPH ==========\n")
 
@@ -47,21 +60,41 @@ async def main():
         )
         graph = builder.compile(checkpointer=checkpointer)
 
-        config = {"configurable": {"thread_id": initial_state["dataset_id"]}}
-        final_state = await graph.ainvoke(initial_state, config=config)
+        config = {"configurable": {"thread_id": dataset_id}}
+
+        result = await graph.ainvoke(graph_input, config=config)
+
+        if "__interrupt__" in result:
+            payload = result["__interrupt__"][0].value
+
+            print("\n========== CONFIRMATION NEEDED ==========")
+            print(f"Stage: {payload['stage']}")
+            print(f"Instruction: {payload['instruction']}")
+            print(f"Confidence: {payload['confidence']}")
+            answer = input("Proceed? (y/n): ").strip().lower() == "y"
+            print("===========================================\n")
+
+            final_state = await graph.ainvoke(Command(resume=answer), config=config)
+        else:
+            final_state = result
 
     print("\n========== FINAL STATE ==========\n")
 
     print(f"INTENT: {final_state.get('intent')}")
 
-    # If the intent router short-circuited to a direct answer,
-    # there's nothing else in the pipeline to print — stop here.
     if final_state.get("direct_answer"):
         print(f"\nDIRECT ANSWER:\n{final_state['direct_answer']}")
         print("\n========== DONE ==========\n")
         return
 
-    # Otherwise, this was a full run_pipeline execution — print everything as before.
+    if final_state.get("intent") == "refine_step" and not final_state.get("refine_confirmed"):
+        print(f"\nREFINE TARGET: {final_state.get('refine_target')}")
+        print(f"INSTRUCTION: {final_state.get('refine_instruction')}")
+        print(f"CONFIDENCE: {final_state.get('refine_confidence')}")
+        print("\n(Not confirmed — nothing executed)")
+        print("\n========== DONE ==========\n")
+        return
+
     print(f"COMPLETED TASKS: {final_state['completed_tasks']}")
     print(f"CURRENT TASK: {final_state['current_task']}")
     print(f"REMAINING TASKS: {final_state['remaining_tasks']}")
@@ -91,28 +124,34 @@ async def main():
 
     if final_state.get("feature_engineering_report"):
         report = final_state["feature_engineering_report"]
-        print(
-            f"\nFE RESULT: {report['original_shape']} -> {report['final_shape']}")
-        print(
-            f"FE STATUS: {report['steps_executed']} succeeded, {report['steps_failed']} failed")
+        if "error" in report:
+            print(f"\nFE RESULT: skipped/failed — {report['error']}")
+        else:
+            print(
+                f"\nFE RESULT: {report['original_shape']} -> {report['final_shape']}")
+            print(
+                f"FE STATUS: {report['steps_executed']} succeeded, {report['steps_failed']} failed")
 
     if final_state.get("training_report"):
         report = final_state["training_report"]
-        print(f"\nTRAINING:")
-        print(f"  Strategy: {report['strategy']}")
-        print(f"  Best algorithm: {report['best_algorithm']}")
-        print(f"  Best CV score: {report['best_mean_cv_score']}")
-        print(f"  Model path: {report.get('model_path', 'N/A')}")
-        print(f"  Time spent: {report['time_spent_seconds']}s")
-        print(f"  Candidates tried:")
-        for r in report["candidates_results"]:
-            status = "✅" if r["status"] == "success" else "❌"
-            if r["status"] == "success":
-                print(
-                    f"    {status} {r['algorithm']}: {r['mean_cv_score']:.5f} (+/- {r['std_cv_score']:.5f}) [{r['actual_time_seconds']}s]")
-            else:
-                print(
-                    f"    {status} {r['algorithm']}: FAILED - {r.get('error', 'unknown')}")
+        if "error" in report:
+            print(f"\nTRAINING: skipped/failed — {report['error']}")
+        else:
+            print(f"\nTRAINING:")
+            print(f"  Strategy: {report['strategy']}")
+            print(f"  Best algorithm: {report['best_algorithm']}")
+            print(f"  Best CV score: {report['best_mean_cv_score']}")
+            print(f"  Model path: {report.get('model_path', 'N/A')}")
+            print(f"  Time spent: {report['time_spent_seconds']}s")
+            print(f"  Candidates tried:")
+            for r in report["candidates_results"]:
+                status = "✅" if r["status"] == "success" else "❌"
+                if r["status"] == "success":
+                    print(
+                        f"    {status} {r['algorithm']}: {r['mean_cv_score']:.5f} (+/- {r['std_cv_score']:.5f}) [{r['actual_time_seconds']}s]")
+                else:
+                    print(
+                        f"    {status} {r['algorithm']}: FAILED - {r.get('error', 'unknown')}")
 
     if final_state.get("hyperparameter_tuning_report"):
         report = final_state["hyperparameter_tuning_report"]
@@ -126,36 +165,43 @@ async def main():
             print(
                 f"  Top important param: {max(report.get('param_importance', {}), key=report.get('param_importance', {}).get) if report.get('param_importance') else 'N/A'}")
             print(f"  Tuned model: {report.get('tuned_model_path')}")
+        else:
+            print(f"  Reason: {report.get('reason', 'N/A')}")
 
     if final_state.get("trained_model_path"):
         print(f"\nMODEL SAVED: {final_state['trained_model_path']}")
 
         if final_state.get("evaluation_report"):
             report = final_state["evaluation_report"]
-            print(f"\nEVALUATION:")
-            print(f"  Problem type: {report['problem_type']}")
-            print(f"  Samples evaluated: {report['num_samples']}")
-            print(f"  Features used: {report['num_features']}")
-
-            metrics = report["metrics"]
-            if report["problem_type"] == "classification":
-                print(f"  Accuracy: {metrics['accuracy']}")
-                print(f"  F1 (weighted): {metrics['f1_weighted']}")
-                print(f"  F1 (macro): {metrics['f1_macro']}")
-                print(
-                    f"  Precision (weighted): {metrics['precision_weighted']}")
-                print(f"  Recall (weighted): {metrics['recall_weighted']}")
+            if "error" in report:
+                print(f"\nEVALUATION: skipped/failed — {report['error']}")
             else:
-                print(f"  RMSE: {metrics['rmse']}")
-                print(f"  R²: {metrics['r2']}")
-                print(f"  MAE: {metrics['mae']}")
+                print(f"\nEVALUATION:")
+                print(f"  Problem type: {report['problem_type']}")
+                print(f"  Samples evaluated: {report['num_samples']}")
+                print(f"  Features used: {report['num_features']}")
 
-            artifacts = report.get("artifacts", {})
-            if "confusion_matrix_path" in artifacts:
-                print(
-                    f"  Confusion matrix: {artifacts['confusion_matrix_path']}")
-            if "residual_plot_path" in artifacts:
-                print(f"  Residual plot: {artifacts['residual_plot_path']}")
+                metrics = report["metrics"]
+                if report["problem_type"] == "classification":
+                    print(f"  Accuracy: {metrics['accuracy']}")
+                    print(f"  F1 (weighted): {metrics['f1_weighted']}")
+                    print(f"  F1 (macro): {metrics['f1_macro']}")
+                    print(
+                        f"  Precision (weighted): {metrics['precision_weighted']}")
+                    print(f"  Recall (weighted): {metrics['recall_weighted']}")
+                else:
+                    print(f"  RMSE: {metrics['rmse']}")
+                    print(f"  R²: {metrics['r2']}")
+                    print(f"  MAE: {metrics['mae']}")
+
+                artifacts = report.get("artifacts", {})
+                if "confusion_matrix_path" in artifacts:
+                    print(
+                        f"  Confusion matrix: {artifacts['confusion_matrix_path']}")
+                if "residual_plot_path" in artifacts:
+                    print(
+                        f"  Residual plot: {artifacts['residual_plot_path']}")
+
     if final_state.get("final_report"):
         report = final_state["final_report"]
         print(f"\nFINAL REPORT:")

@@ -3,7 +3,7 @@ from typing import Literal
 
 
 class IntentClassification(BaseModel):
-    intent: Literal["run_pipeline", "explain_result", "general_question"] = Field(
+    intent: Literal["run_pipeline", "explain_result", "general_question", "refine_step"] = Field(
         description="What kind of request this is"
     )
     reasoning: str = Field(

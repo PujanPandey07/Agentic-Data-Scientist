@@ -7,11 +7,20 @@ logger = logging.getLogger(__name__)
 
 
 class ReportingService:
-    """Deterministic report builder. Aggregates all pipeline results."""
+    """Deterministic report builder. Aggregates results from stages that
+    actually ran in THIS invocation — never stale data left over in the
+    checkpoint from an earlier, unrelated session on the same thread."""
 
     def generate_report(self, state: dict) -> dict:
         logger.info(
             f"Generating final report for dataset {state.get('dataset_id')}")
+
+        completed = state.get("completed_tasks") or []
+
+        ran_feature_engineering = "feature_engineering" in completed
+        ran_model_selection = "model_selection" in completed
+        ran_hyperparameter_tuning = "hyperparameter_tuning" in completed
+        ran_evaluation = "evaluation" in completed
 
         report = {
             "generated_at": datetime.utcnow().isoformat() + "Z",
@@ -20,8 +29,8 @@ class ReportingService:
             "target_column": state.get("target_column") or "N/A",
             "problem_type": self._get_problem_type(state),
             "pipeline_status": {
-                "completed_tasks": state.get("completed_tasks") or [],
-                "total_tasks": len(state.get("completed_tasks") or []),
+                "completed_tasks": completed,
+                "total_tasks": len(completed),
             },
             "dataset_overview": self._build_dataset_overview(state),
             "cleaning": state.get("cleaning_report"),
@@ -30,10 +39,23 @@ class ReportingService:
                 "num_charts": len(state.get("visualization_results") or []),
                 "charts": state.get("visualization_results") or [],
             },
-            "feature_engineering": state.get("feature_engineering_report"),
-            "training": state.get("training_report"),
-            "evaluation": state.get("evaluation_report"),
-            "conclusions": self._build_conclusions(state),
+            "feature_engineering": (
+                state.get("feature_engineering_report")
+                if ran_feature_engineering else None
+            ),
+            "training": (
+                state.get("training_report")
+                if ran_model_selection else None
+            ),
+            "hyperparameter_tuning": (
+                state.get("hyperparameter_tuning_report")
+                if ran_hyperparameter_tuning else None
+            ),
+            "evaluation": (
+                state.get("evaluation_report")
+                if ran_evaluation else None
+            ),
+            "conclusions": self._build_conclusions(state, ran_model_selection, ran_evaluation),
         }
 
         # Save to disk
@@ -54,7 +76,9 @@ class ReportingService:
     def _get_problem_type(self, state: dict) -> str:
         plan = state.get("analysis_plan")
         if plan:
-            return getattr(plan, "problem_type", "unknown")
+            # getattr's default only kicks in when the attribute is missing,
+            # not when it exists but is None — so fall back explicitly too.
+            return getattr(plan, "problem_type", None) or "unknown"
         return "unknown"
 
     def _build_dataset_overview(self, state: dict) -> dict:
@@ -66,10 +90,27 @@ class ReportingService:
             }
         return {}
 
-    def _build_conclusions(self, state: dict) -> dict:
-        """Auto-generate key takeaways from training + evaluation."""
-        training = state.get("training_report", {})
-        evaluation = state.get("evaluation_report", {})
+    def _build_conclusions(
+        self, state: dict, ran_model_selection: bool, ran_evaluation: bool
+    ) -> dict:
+        """Auto-generate key takeaways from training + evaluation — but
+        only if those stages actually ran in this invocation. Otherwise
+        this run made no claims about model quality, and the report
+        shouldn't invent any."""
+
+        if not ran_model_selection:
+            return {
+                "best_model": "N/A",
+                "cv_score": "N/A",
+                "final_accuracy": None,
+                "final_f1": None,
+                "recommendation": (
+                    "No model training was part of this run — "
+                    "see cleaning/EDA/visualization results above."
+                ),
+            }
+
+        training = state.get("training_report") or {}
 
         conclusions = {
             "best_model": training.get("best_algorithm", "N/A"),
@@ -79,7 +120,16 @@ class ReportingService:
             "recommendation": "N/A",
         }
 
-        if evaluation and evaluation.get("problem_type") == "classification":
+        if not ran_evaluation:
+            conclusions["recommendation"] = (
+                "Model was trained/selected, but evaluation did not run "
+                "in this session."
+            )
+            return conclusions
+
+        evaluation = state.get("evaluation_report") or {}
+
+        if evaluation.get("problem_type") == "classification":
             metrics = evaluation.get("metrics", {})
             conclusions["final_accuracy"] = metrics.get("accuracy")
             conclusions["final_f1"] = metrics.get("f1_weighted")
@@ -95,7 +145,7 @@ class ReportingService:
                 else:
                     conclusions["recommendation"] = "Performance needs improvement. Investigate data quality or model complexity."
 
-        elif evaluation and evaluation.get("problem_type") == "regression":
+        elif evaluation.get("problem_type") == "regression":
             metrics = evaluation.get("metrics", {})
             r2 = metrics.get("r2")
             conclusions["final_r2"] = r2

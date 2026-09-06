@@ -16,6 +16,12 @@ class GraphState(TypedDict):
     target_column: str | None
     intent: str | None
     direct_answer: str | None
+    refine_target: str | None
+
+    refine_instruction: str | None
+    refine_confidence: float | None
+    no_prior_analysis: bool | None
+    refine_confirmed: bool | None
 
     # Dataset
     dataframe: pd.DataFrame | None
@@ -43,8 +49,9 @@ class GraphState(TypedDict):
     training_report: dict | None
     trained_model_path: str | None   # NEW — set by training node
 
-    # evaluation
+  # evaluation
     evaluation_report: dict | None
+
     hyperparameter_tuning_report: dict | None
     tuned_model_path: str | None
 

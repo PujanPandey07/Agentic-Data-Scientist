@@ -86,3 +86,22 @@ class ModelSelectionPlan(BaseModel):
         default_factory=list,
         description="Why certain algorithms were excluded. Shows the LLM's reasoning."
     )
+    forced_algorithm: Optional[Literal[
+        "logistic_regression",
+        "random_forest",
+        "xgboost",
+        "lightgbm",
+        "svm_rbf",
+        "svm_linear",
+        "neural_network_mlp",
+    ]] = Field(
+        default=None,
+        description=(
+            "Set ONLY if the user's query explicitly names a specific algorithm "
+            "(e.g. 'use XGBoost', 'train a random forest'). When set, this algorithm "
+            "is GUARANTEED to be the final selection regardless of CV score comparison "
+            "against other candidates — it must still appear in `candidates`. "
+            "Leave None for general 'find me the best model' queries where the "
+            "algorithm choice is left to comparison."
+        )
+    )

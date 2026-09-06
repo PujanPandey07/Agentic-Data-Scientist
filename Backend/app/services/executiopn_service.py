@@ -9,10 +9,14 @@ class ExecutionService:
         self,
         state,
         completed_task,
-        message
+        message,
+        status="success",
     ):
-
-        state["completed_tasks"].append(completed_task)
+        # Only count it as "completed" if it actually ran successfully.
+        # Skipped/errored stages are logged but not added to completed_tasks,
+        # so history doesn't lie about what actually executed.
+        if status == "success":
+            state["completed_tasks"].append(completed_task)
 
         if state["remaining_tasks"]:
             state["current_task"] = state["remaining_tasks"].pop(0)
@@ -22,13 +26,13 @@ class ExecutionService:
         state["execution_logs"].append(
             {
                 "node": completed_task,
-                "status": "success",
-                "message": message
+                "status": status,
+                "message": message,
             }
         )
 
         logger.info(
-            f"Task '{completed_task}' completed. Next task: {state['current_task']}"
+            f"Task '{completed_task}' finished with status='{status}'. Next task: {state['current_task']}"
         )
 
         return state

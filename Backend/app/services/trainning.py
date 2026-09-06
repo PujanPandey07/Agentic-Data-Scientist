@@ -140,6 +140,47 @@ class TrainingService:
         logger.info(
             f"Best candidate: {best_candidate.algorithm} (score={round(best_score, 5)})")
 
+        # ------------------------------------------------------------- #
+        # Forced algorithm override
+        #
+        # If the user's query explicitly named an algorithm, the planner
+        # sets plan.forced_algorithm. We still trained every candidate
+        # above for honest comparison/reporting, but the final selection
+        # must honor the user's explicit instruction regardless of how
+        # it scored against the alternatives.
+        # ------------------------------------------------------------- #
+        forced_override_applied = False
+        forced_algorithm = getattr(plan, "forced_algorithm", None)
+
+        if forced_algorithm:
+            forced_result = next(
+                (r for r in results if r["algorithm"] ==
+                 forced_algorithm and r["status"] == "success"),
+                None,
+            )
+            if forced_result is not None:
+                forced_candidate = next(
+                    c for c in candidates if c.algorithm == forced_algorithm
+                )
+                if forced_algorithm != best_candidate.algorithm:
+                    logger.info(
+                        f"User explicitly requested '{forced_algorithm}' "
+                        f"(scored {forced_result['mean_cv_score']}) — overriding "
+                        f"CV-selected winner '{best_candidate.algorithm}' "
+                        f"(scored {round(best_score, 5)})"
+                    )
+                best_candidate = forced_candidate
+                best_score = forced_result["mean_cv_score"]
+                best_model = self._get_model(
+                    forced_candidate, is_classification)
+                forced_override_applied = True
+            else:
+                logger.warning(
+                    f"User requested '{forced_algorithm}' but it failed to train "
+                    f"or wasn't among candidates — falling back to CV-selected "
+                    f"winner '{best_candidate.algorithm}'"
+                )
+
         # Retrain best model on FULL data
         if used_sampling:
             final_model = clone(best_model)
@@ -166,6 +207,8 @@ class TrainingService:
             "best_mean_cv_score": round(best_score, 5),
             "best_hyperparams": best_candidate.hyperparams,
             "best_reason": best_candidate.reason,
+            "forced_algorithm": forced_algorithm,
+            "forced_override_applied": forced_override_applied,
             "retrain_note": retrain_note,
             "notes": plan.notes,
         }

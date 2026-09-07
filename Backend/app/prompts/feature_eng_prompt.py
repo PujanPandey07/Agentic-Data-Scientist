@@ -54,6 +54,7 @@ CRITICAL RULES:
 2. If a categorical has > 50 unique values, DO NOT one-hot encode. Suggest label_encode instead, or note it for post-split target encoding.
 3. Drop highly correlated features BEFORE creating polynomial features to avoid multicollinearity explosion.
 4. Order your steps deliberately: drop columns first, then create features, then encode, then scale.
+5. You will be told the TARGET COLUMN name. NEVER include the target column in `columns` for ANY step — not drop_columns, not label_encode, not one_hot_encode, not correlation/variance filtering, nothing. The target must remain completely untouched by feature engineering. Encoding or transforming it creates a leaked feature that makes every downstream model look artificially perfect.
 
 OUTPUT: A FeatureEngineeringPlan with:
   - steps: Ordered list of FeatureEngineeringStep objects. Order matters.

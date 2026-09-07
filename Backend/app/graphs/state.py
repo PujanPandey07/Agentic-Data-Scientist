@@ -47,6 +47,8 @@ class GraphState(TypedDict):
     # Feature Engineering
     feature_engineering_plan: FeatureEngineeringPlan | None
     feature_engineering_report: dict | None
+    train_df: pd.DataFrame | None
+    test_df: pd.DataFrame | None
 
     # Training
     model_selection_plan: ModelSelectionPlan | None

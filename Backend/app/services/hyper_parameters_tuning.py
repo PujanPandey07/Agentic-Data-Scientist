@@ -28,6 +28,12 @@ class HyperparameterTuningService:
             le = LabelEncoder()
             y = le.fit_transform(y)
 
+        # Computed once, up front, rather than relying on each fold's fit()
+        # to infer it — avoids the intermittent XGBoost "num_class should be
+        # greater equal to 1" error seen across repeated Optuna trials.
+        num_classes = int(pd.Series(y).nunique()
+                          ) if problem_type == "classification" else None
+
         scoring = "accuracy" if problem_type == "classification" else "neg_mean_squared_error"
 
         study = optuna.create_study(direction="maximize")
@@ -35,7 +41,7 @@ class HyperparameterTuningService:
 
         def objective(trial):
             model = self._suggest_model(
-                trial, best_candidate.algorithm, problem_type)
+                trial, best_candidate.algorithm, problem_type, num_classes)
             scores = cross_val_score(
                 model, X, y, cv=3, scoring=scoring, n_jobs=-1)
             return float(scores.mean())
@@ -46,7 +52,7 @@ class HyperparameterTuningService:
 
         best_params = study.best_params
         final_model = self._build_model(
-            best_candidate.algorithm, best_params, problem_type)
+            best_candidate.algorithm, best_params, problem_type, num_classes)
         final_model.fit(X, y)
 
         os.makedirs("outputs/models", exist_ok=True)
@@ -77,7 +83,7 @@ class HyperparameterTuningService:
 
         return final_model, report
 
-    def _suggest_model(self, trial, algorithm, problem_type):
+    def _suggest_model(self, trial, algorithm, problem_type, num_classes=None):
         if algorithm == "random_forest":
             params = {
                 "n_estimators": trial.suggest_int("n_estimators", 50, 500),
@@ -99,7 +105,18 @@ class HyperparameterTuningService:
                 "min_child_weight": trial.suggest_int("min_child_weight", 1, 10),
             }
             from xgboost import XGBClassifier, XGBRegressor
-            return XGBClassifier(**params) if problem_type == "classification" else XGBRegressor(**params)
+            if problem_type == "classification":
+                # Explicit objective/num_class for multiclass avoids
+                # XGBoost's sklearn wrapper occasionally mis-inferring
+                # num_class across repeated fresh instantiations in
+                # Optuna's trial loop.
+                if num_classes is not None and num_classes > 2:
+                    params["objective"] = "multi:softprob"
+                    params["num_class"] = num_classes
+                else:
+                    params["objective"] = "binary:logistic"
+                return XGBClassifier(**params)
+            return XGBRegressor(**params)
 
         elif algorithm == "logistic_regression":
             params = {
@@ -119,11 +136,60 @@ class HyperparameterTuningService:
             from sklearn.svm import SVC, SVR
             return SVC(kernel="rbf", **params) if problem_type == "classification" else SVR(kernel="rbf", **params)
 
+        elif algorithm == "svm_linear":
+            params = {
+                "C": trial.suggest_float("C", 0.01, 100, log=True),
+            }
+            from sklearn.svm import SVC, SVR
+            return SVC(kernel="linear", **params) if problem_type == "classification" else SVR(kernel="linear", **params)
+
+        elif algorithm == "lightgbm":
+            params = {
+                "n_estimators": trial.suggest_int("n_estimators", 50, 500),
+                "max_depth": trial.suggest_int("max_depth", 3, 15),
+                "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
+                "num_leaves": trial.suggest_int("num_leaves", 15, 150),
+                "subsample": trial.suggest_float("subsample", 0.5, 1.0),
+                "colsample_bytree": trial.suggest_float("colsample_bytree", 0.5, 1.0),
+                "min_child_samples": trial.suggest_int("min_child_samples", 5, 50),
+            }
+            from lightgbm import LGBMClassifier, LGBMRegressor
+            if problem_type == "classification":
+                if num_classes is not None and num_classes > 2:
+                    params["objective"] = "multiclass"
+                    params["num_class"] = num_classes
+                else:
+                    params["objective"] = "binary"
+                return LGBMClassifier(verbose=-1, **params)
+            return LGBMRegressor(verbose=-1, **params)
+
+        elif algorithm == "neural_network_mlp":
+            n_layers = trial.suggest_int("n_layers", 1, 3)
+            layer_size = trial.suggest_categorical("layer_size", [32, 64, 128])
+            params = {
+                "hidden_layer_sizes": tuple([layer_size] * n_layers),
+                "alpha": trial.suggest_float("alpha", 1e-5, 1e-1, log=True),
+                "learning_rate_init": trial.suggest_float("learning_rate_init", 1e-4, 1e-1, log=True),
+                "max_iter": 500,
+            }
+            from sklearn.neural_network import MLPClassifier, MLPRegressor
+            return MLPClassifier(**params) if problem_type == "classification" else MLPRegressor(**params)
+
         logger.error(f"Tuning not implemented for algorithm: {algorithm}")
         raise ValueError(f"Tuning not implemented for: {algorithm}")
 
-    def _build_model(self, algorithm, params, problem_type):
-        return self._suggest_model(type('T', (), {'suggest_int': lambda self, n, l, h: params.get(n, l),
-                                                  'suggest_float': lambda self, n, l, h, log=False: params.get(n, l),
-                                                  'suggest_categorical': lambda self, n, c: params.get(n, c[0])})(),
-                                   algorithm, problem_type)
+    def _build_model(self, algorithm, params, problem_type, num_classes=None):
+        # Shim trial object that just replays the already-chosen params
+        # instead of asking Optuna to suggest new ones. suggest_categorical
+        # needs a fallback default even when the param isn't in `params`
+        # (e.g. n_layers/layer_size not directly present as final params
+        # for MLP — see note below).
+        shim = type(
+            "T", (),
+            {
+                "suggest_int": lambda self, n, l, h: params.get(n, l),
+                "suggest_float": lambda self, n, l, h, log=False: params.get(n, l),
+                "suggest_categorical": lambda self, n, c: params.get(n, c[0]),
+            },
+        )()
+        return self._suggest_model(shim, algorithm, problem_type, num_classes)

@@ -1,6 +1,8 @@
+import logging
+from sklearn.model_selection import train_test_split as sk_train_test_split
+
 from utilis.constraints import format_constraints, detect_forced_algorithm
 from schema.model_selection import ModelCandidate
-import logging
 from langgraph.types import interrupt
 from agents.constraint_extractor import constraints_extractor_agent
 
@@ -56,6 +58,63 @@ def advance_execution(state, task_name: str, message: str, status: str = "succes
     )
 
     return state
+
+
+def _ensure_train_test_split(state, test_size: float = 0.2, random_state: int = 42):
+    """Stratified (classification) or plain (regression) 80/20 train/test
+    split, cached in state as train_df/test_df. TrainingService and
+    HyperparameterTuningService now only ever see train_df — test_df stays
+    untouched until evaluation_node scores the FINAL tuned model against it.
+
+    Cache invalidation: cleaning_node and feature_engineering_node clear
+    train_df/test_df whenever they change state["dataframe"], so this
+    regenerates automatically after any upstream data change. A refine_step
+    that only targets model_selection/hyperparameter_tuning reuses the
+    existing split untouched — correct, since the data didn't change.
+
+    Known limitation: feature_engineering_node still fits things like
+    scalers/correlation thresholds on the FULL dataframe before this split
+    happens, so scaling statistics technically see the test set's
+    distribution too. This fixes evaluation leakage (scoring on unseen
+    rows), not that subtler feature-engineering-level leakage — a bigger
+    restructuring, not addressed here.
+    """
+    if state.get("train_df") is not None and state.get("test_df") is not None:
+        return
+
+    df = state.get("dataframe")
+    target_column = state.get("target_column")
+    analysis_plan = state.get("analysis_plan")
+    problem_type = analysis_plan.problem_type if analysis_plan else "classification"
+
+    if df is None or target_column is None or target_column not in df.columns:
+        return  # let the caller's own missing-input guard handle it
+
+    stratify_col = None
+    if problem_type == "classification":
+        counts = df[target_column].value_counts()
+        if (counts >= 2).all():
+            stratify_col = df[target_column]
+
+    try:
+        train_df, test_df = sk_train_test_split(
+            df, test_size=test_size, random_state=random_state,
+            stratify=stratify_col,
+        )
+    except ValueError as e:
+        logger.warning(
+            f"Stratified split failed ({e}), falling back to unstratified split")
+        train_df, test_df = sk_train_test_split(
+            df, test_size=test_size, random_state=random_state,
+        )
+
+    state["train_df"] = train_df.reset_index(drop=True)
+    state["test_df"] = test_df.reset_index(drop=True)
+
+    logger.info(
+        f"Train/test split created: train={state['train_df'].shape}, "
+        f"test={state['test_df'].shape}"
+    )
 
 
 async def dataset_node(state):
@@ -199,6 +258,9 @@ async def cleaning_node(state):
 
     state["dataframe"] = cleaned_dataframe
     state["cleaning_report"] = report
+    # Data changed — any cached train/test split is now stale.
+    state["train_df"] = None
+    state["test_df"] = None
 
     print("REPORT IN STATE:", state.get("cleaning_report"))
 
@@ -238,40 +300,30 @@ async def eda_node(state):
 # ---------------------------------------------------------------------------
 
 async def visualization_planner_node(state):
+
     user_query = state.get("user_query")
     dataset_summary = state.get("dataset_summary")
     eda_report = state.get("eda_report")
 
     if not user_query:
         raise ValueError("User query not found in graph state.")
+
     if dataset_summary is None:
         raise ValueError("Dataset summary not found in graph state.")
+
     if eda_report is None:
         raise ValueError("EDA report not found in graph state.")
 
     visualization_plan = await visualization_planner_agent.plan_visualizations(
         user_query=user_query,
         dataset_summary=dataset_summary,
-        eda_report=eda_report,
-        constraints=(state.get("user_constraints")
-                     or {}).get("visualization", []),
+        eda_report=eda_report
     )
 
+    # Partial-update return — NOT the whole state. Two nodes running
+    # concurrently must each touch only their own key, or LangGraph
+    # can't merge them (InvalidUpdateError).
     return {"visualization_plan": visualization_plan}
-
-
-async def feature_engineering_planner_node(state):
-    agent = FeatureEngineeringPlannerAgent()
-
-    plan = await agent.plan(
-        user_query=state.get("user_query", ""),
-        dataset_summary=state.get("dataset_summary"),
-        eda_report=state.get("eda_report", {}),
-        constraints=(state.get("user_constraints") or {}
-                     ).get("feature_engineering", []),
-    )
-
-    return {"feature_engineering_plan": plan}
 
 
 async def model_selection_planner_node(state):
@@ -336,37 +388,73 @@ async def visualization_node(state):
     }
 
 
+async def feature_engineering_planner_node(state):
+    """LLM reasoning: decides WHAT feature engineering to do."""
+    agent = FeatureEngineeringPlannerAgent()
+
+    plan = await agent.plan(
+        user_query=state.get("user_query", ""),
+        dataset_summary=state.get("dataset_summary"),
+        eda_report=state.get("eda_report", {}),
+        target_column=state.get("target_column"),
+    )
+
+    return {"feature_engineering_plan": plan}
+
+
 async def feature_engineering_node(state):
-    """Deterministic execution: applies the plan to the dataframe."""
+    """Deterministic execution: applies the plan to the dataframe.
+
+    Partial-update return only — NOT advance_execution / whole state.
+    This runs concurrently with visualization_node during fan-out, so it
+    must touch only its own keys or LangGraph can't merge the two
+    concurrent writes. Task-pointer advancement (current_task/
+    remaining_tasks) is handled entirely by router now, for both the
+    fan-out and standalone cases.
+    """
     df = state.get("dataframe")
     plan = state.get("feature_engineering_plan")
+    target_column = state.get("target_column")
+
+    print("Running feature_engineering node...")
 
     if df is None or plan is None:
+        # Skipped — no _fe_just_completed set, so router correctly won't
+        # add "feature_engineering" to completed_tasks for this run.
         return {
-            "feature_engineering_report": {"error": "Missing dataframe or feature engineering plan"},
-            "_fe_just_completed": "Skipped: missing required inputs",
+            "feature_engineering_report": {
+                "error": "Missing dataframe or feature engineering plan"
+            },
         }
 
     service = FeatureEngineeringService()
-    transformed_df, report = service.apply_plan(df, plan)
+    transformed_df, report = service.apply_plan(
+        df, plan, target_column=target_column)
 
     msg = (
         f"Feature engineering complete. "
         f"Shape: {df.shape} -> {transformed_df.shape}. "
         f"Steps: {report['steps_executed']}/{len(plan.steps)} succeeded."
     )
-    print("Running feature_engineering node...")
 
     return {
         "dataframe": transformed_df,
         "feature_engineering_report": report,
         "_fe_just_completed": msg,
+        # Data changed — any cached train/test split is now stale.
+        "train_df": None,
+        "test_df": None,
     }
 
 
 async def training_node(state):
-    """Deterministic execution: trains models, picks best, saves to disk."""
-    df = state.get("dataframe")
+    """Deterministic execution: trains models, picks best, saves to disk.
+
+    Trains only on train_df (never test_df) — see _ensure_train_test_split.
+    """
+    _ensure_train_test_split(state)
+
+    df = state.get("train_df")
     plan = state.get("model_selection_plan")
     target_column = state.get("target_column")
     dataset_id = state.get("dataset_id")
@@ -408,15 +496,18 @@ async def training_node(state):
 
 
 async def evaluation_node(state):
-    """Deterministic evaluation: loads model, computes metrics, generates artifacts."""
-    df = state.get("dataframe")
+    """Deterministic evaluation: loads the TUNED model (falling back to the
+    untuned trained model if tuning was skipped/failed), scores it against
+    the held-out TEST split only — never training data."""
+    df = state.get("test_df")
     target_column = state.get("target_column")
-    model_path = state.get("trained_model_path")
+    model_path = state.get("tuned_model_path") or state.get(
+        "trained_model_path")
     analysis_plan = state.get("analysis_plan")
 
     if df is None or target_column is None or model_path is None:
         state["evaluation_report"] = {
-            "error": "Missing dataframe, target column, or trained model path"
+            "error": "Missing test dataframe, target column, or trained model path"
         }
         return advance_execution(
             state, "evaluation", "Skipped: missing required inputs",
@@ -476,7 +567,10 @@ async def reporting_node(state):
 
 
 async def hyperparameter_tuning_node(state):
-    df = state.get("dataframe")
+    """Tunes only on train_df (never test_df) — see _ensure_train_test_split."""
+    _ensure_train_test_split(state)
+
+    df = state.get("train_df")
     plan = state.get("model_selection_plan")
     training_report = state.get("training_report")
     target_column = state.get("target_column")
@@ -635,7 +729,8 @@ async def confirm_refinement_node(state):
             dataframe = dataset_service.load_dataset(state["dataset_id"])
             state["dataframe"] = dataframe
             if state.get("dataset_summary") is None:
-                state["dataset_summary"] = dataset_inspector.inspect(dataframe)
+                state["dataset_summary"] = dataset_inspector.inspect(
+                    dataframe)
 
         target = state.get("refine_target")
         state["current_task"] = target

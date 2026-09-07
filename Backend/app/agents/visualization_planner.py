@@ -3,6 +3,7 @@ from schema.visualization_plan import VisualizationPlanResponse
 from prompts.visualization_prompt import visualization_prompt
 from llm.provider import get_llm
 from utilis.llm_plan import invoke_with_repair
+from utilis.constraints import format_constraints
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ class VisualizationPlannerAgent:
         user_query: str,
         dataset_summary,
         eda_report: dict,
+        constraints: list[str] | None = None,
     ) -> VisualizationPlanResponse:
         logger.info("Starting visualization planning")
 
@@ -37,7 +39,7 @@ Dataset Summary:
 {dataset_summary}
 
 EDA Report:
-{eda_report}
+{eda_report}{format_constraints(constraints)}
 """,
             },
         ]

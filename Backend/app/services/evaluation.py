@@ -1,3 +1,4 @@
+import warnings
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import learning_curve
 from sklearn.metrics import (
@@ -15,6 +16,7 @@ import matplotlib
 matplotlib.use("Agg")
 
 logger = logging.getLogger(__name__)
+warnings.filterwarnings("ignore", message="Scoring failed.*")
 
 
 class EvaluationService:

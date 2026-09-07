@@ -19,8 +19,7 @@ async def main():
     # -> should trigger direct_answer
     # user_query = "What does F1 score mean?"
     # -> should trigger refine_step
-    user_query = "only run data cleaning and visualizations"
-
+    user_query = "I've been exploring the Iris flowers dataset for a school project on plant classification, and I'm really curious how different models perform — I've heard random forests are usually great for small, clean tabular data like this. Anyway, could you check for duplicates and missing values first, look at the feature distributions, and make a few charts so I can show my classmates? Then for the actual model, I specifically want you to use XGBoost rather than anything else, and after that, tune it a bit and tell me how well it does."
     dataset_id = "08f054c7-0d54-4db4-95db-b84616f7bf25"
 
     is_first_run = False

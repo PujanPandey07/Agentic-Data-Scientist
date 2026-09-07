@@ -7,7 +7,7 @@ from graphs.nodes import (
     visualization_planner_node, feature_engineering_planner_node, feature_engineering_node,
     model_selection_planner_node, training_node, evaluation_node, reporting_node,
     hyperparameter_tuning_node,
-    intent_router_node, route_intent, direct_answer_node,  refine_target_node
+    intent_router_node, route_intent, direct_answer_node,  refine_target_node, extract_constraints_node
 )
 
 from graphs.state import GraphState
@@ -37,7 +37,7 @@ builder.add_node("direct_answer", direct_answer_node)
 builder.add_node("refine_target", refine_target_node)
 builder.add_node("confirm_refinement", confirm_refinement_node)
 builder.add_node("refinement_cancelled", refinement_cancelled_node)
-
+builder.add_node("extract_constraints", extract_constraints_node)
 # Define workflow
 builder.add_edge(START, "intent_router")
 builder.add_conditional_edges(
@@ -61,7 +61,8 @@ builder.add_conditional_edges(
 
 
 builder.add_edge("dataset", "planner")
-builder.add_edge("planner", "initialize_execution")
+builder.add_edge("planner", "extract_constraints")
+builder.add_edge("extract_constraints", "initialize_execution")
 builder.add_edge("initialize_execution", "router")
 builder.add_conditional_edges(
     "router",
@@ -75,10 +76,13 @@ builder.add_conditional_edges(
         "hyperparameter_tuning": "hyperparameter_tuning",
         "evaluation": "evaluation",
         "reporting": "reporting",
+        "visualization_planner": "visualization_planner",      # NEW — for fan-out
+        "feature_engineering_planner": "feature_engineering_planner",  # NEW — for fan-out
         END: END,
     },
-
 )
+
+
 builder.add_edge("cleaning", "router")
 builder.add_edge("eda", "router")
 

@@ -289,7 +289,9 @@ class TrainingService:
             elif algo == "xgboost":
                 try:
                     from xgboost import XGBClassifier
-                    return XGBClassifier(use_label_encoder=False, **params)
+                    safe_params = {k: v for k,
+                                   v in params.items() if k != "use_label_encoder"}
+                    return XGBClassifier(**safe_params)
                 except ImportError:
                     raise ImportError(
                         "xgboost not installed. Run: pip install xgboost")

@@ -1,5 +1,8 @@
+from utilis.constraints import format_constraints, detect_forced_algorithm
+from schema.model_selection import ModelCandidate
+import logging
 from langgraph.types import interrupt
-from fastapi import logger
+from agents.constraint_extractor import constraints_extractor_agent
 
 from agents.refine_target import refine_target_agent
 from llm.provider import get_llm
@@ -22,6 +25,8 @@ from analysis.inspector import dataset_inspector
 from services.cleaning_service import CleaningService
 from services.executiopn_service import execution_service
 from agents.visualization_planner import visualization_planner_agent
+
+logger = logging.getLogger(__name__)
 
 CASCADE_MAP = {
     "cleaning": ["eda", "visualization", "feature_engineering", "model_selection", "hyperparameter_tuning", "evaluation", "reporting"],
@@ -106,33 +111,75 @@ async def initialize_execution_node(state):
 
 
 async def router(state):
+    # Record completion from a just-finished viz/FE branch (fan-out or
+    # standalone) — done here, in one place, since router only ever
+    # runs one instance at a time (no concurrency risk for this update).
+    new_completed = []
+    new_logs = []
+
+    if state.get("_viz_just_completed"):
+        new_completed.append("visualization")
+        new_logs.append({"node": "visualization", "status": "success",
+                        "message": state["_viz_just_completed"]})
+        state["_viz_just_completed"] = None
+
+    if state.get("_fe_just_completed"):
+        new_completed.append("feature_engineering")
+        new_logs.append({"node": "feature_engineering",
+                        "status": "success", "message": state["_fe_just_completed"]})
+        state["_fe_just_completed"] = None
+
+    if new_completed:
+        state["completed_tasks"] = state.get(
+            "completed_tasks", []) + new_completed
+        state["execution_logs"] = state.get("execution_logs", []) + new_logs
+
+    current_task = state.get("current_task")
+    remaining = state.get("remaining_tasks", [])
+
+    both_pending = (
+        (current_task == "visualization" and "feature_engineering" in remaining) or
+        (current_task == "feature_engineering" and "visualization" in remaining)
+    )
+
+    if both_pending:
+        new_remaining = [t for t in remaining if t not in (
+            "visualization", "feature_engineering")]
+        state["current_task"] = new_remaining[0] if new_remaining else None
+        state["remaining_tasks"] = new_remaining[1:] if len(
+            new_remaining) > 1 else []
+        state["fan_out_viz_fe"] = True
+    elif current_task in ("visualization", "feature_engineering"):
+        # standalone (non-fanout) case — advance past just this one, as before
+        state["current_task"] = remaining[0] if remaining else None
+        state["remaining_tasks"] = remaining[1:] if len(remaining) > 1 else []
+        state["fan_out_viz_fe"] = False
+    else:
+        state["fan_out_viz_fe"] = False
+
     return state
 
 
 def route_task(state):
+    if state.get("fan_out_viz_fe"):
+        return ["visualization_planner", "feature_engineering_planner"]
 
     task = state.get("current_task")
 
     if task == "cleaning":
         return "cleaning"
-
     if task == "eda":
         return "eda"
-
     if task == "feature_engineering":
         return "feature_engineering"
-
     if task == "model_selection":
         return "model_selection"
-
     if task == "visualization":
         return "visualization"
     if task == "hyperparameter_tuning":
         return "hyperparameter_tuning"
-
     if task == "evaluation":
         return "evaluation"
-
     if task == "reporting":
         return "reporting"
 
@@ -177,74 +224,116 @@ async def eda_node(state):
     )
 
 
-async def visualization_planner_node(state):
+# ---------------------------------------------------------------------------
+# NOTE: visualization_planner_node and feature_engineering_planner_node are
+# each defined ONCE here — these are the versions that must run for the
+# fan-out to work. They return partial-update dicts (only the key they
+# actually set), NOT the whole state, because when both run concurrently in
+# the same step, returning the full state causes both branches to "write"
+# to every key (including untouched ones like user_query), which LangGraph
+# rejects with InvalidUpdateError. A second, older copy of each of these
+# functions previously existed further down in this file — Python silently
+# used whichever definition came last, which is why the fix appeared not to
+# take effect. Do not add a second definition of either function again.
+# ---------------------------------------------------------------------------
 
+async def visualization_planner_node(state):
     user_query = state.get("user_query")
     dataset_summary = state.get("dataset_summary")
     eda_report = state.get("eda_report")
 
     if not user_query:
         raise ValueError("User query not found in graph state.")
-
     if dataset_summary is None:
         raise ValueError("Dataset summary not found in graph state.")
-
     if eda_report is None:
         raise ValueError("EDA report not found in graph state.")
 
     visualization_plan = await visualization_planner_agent.plan_visualizations(
         user_query=user_query,
         dataset_summary=dataset_summary,
-        eda_report=eda_report
+        eda_report=eda_report,
+        constraints=(state.get("user_constraints")
+                     or {}).get("visualization", []),
     )
 
-    state["visualization_plan"] = visualization_plan
-
-    return state
-
-
-async def visualization_node(state):
-
-    dataframe = state.get("dataframe")
-
-    if dataframe is None:
-        raise ValueError(
-            "Dataframe not found in graph state."
-        )
-
-    visualization_plan = state.get("visualization_plan")
-
-    if visualization_plan is None:
-        raise ValueError(
-            "Visualization plan not found in graph state."
-        )
-
-    visualizations = visualization_service.generate_visualizations(
-        dataframe=dataframe,
-        visualization_plan=visualization_plan,
-    )
-
-    state["visualizations"] = visualizations
-
-    return advance_execution(
-        state,
-        "visualization",
-        "Visualizations generated successfully."
-    )
+    return {"visualization_plan": visualization_plan}
 
 
 async def feature_engineering_planner_node(state):
-    """LLM reasoning: decides WHAT feature engineering to do."""
     agent = FeatureEngineeringPlannerAgent()
 
     plan = await agent.plan(
         user_query=state.get("user_query", ""),
         dataset_summary=state.get("dataset_summary"),
         eda_report=state.get("eda_report", {}),
+        constraints=(state.get("user_constraints") or {}
+                     ).get("feature_engineering", []),
     )
 
-    state["feature_engineering_plan"] = plan
+    return {"feature_engineering_plan": plan}
+
+
+async def model_selection_planner_node(state):
+    """LLM reasoning: decides WHICH models to try."""
+    agent = ModelSelectionPlannerAgent()
+    constraints = (state.get("user_constraints")
+                   or {}).get("model_selection", [])
+
+    plan = await agent.plan(
+        user_query=state.get("user_query", ""),
+        dataset_summary=state.get("dataset_summary"),
+        eda_report=state.get("eda_report", {}),
+        feature_engineering_report=state.get("feature_engineering_report"),
+        constraints=constraints,
+    )
+
+    # Deterministic override — don't rely on the LLM to notice and set
+    # forced_algorithm correctly. If the user's constraint text names a
+    # known algorithm, force it in code and skip comparing against other
+    # candidates entirely (no point training models that were never going
+    # to be chosen).
+    forced = detect_forced_algorithm(constraints)
+    if forced:
+        existing = next(
+            (c for c in plan.candidates if c.algorithm == forced), None)
+        plan.forced_algorithm = forced
+        plan.candidates = [
+            existing if existing else ModelCandidate(
+                algorithm=forced,
+                reason="User explicitly requested this algorithm.",
+                estimated_time_seconds=30,
+                hyperparams={},
+                priority=1,
+            )
+        ]
+        logger.info(
+            f"Forced algorithm '{forced}' detected — skipping candidate comparison")
+
+    state["model_selection_plan"] = plan
     return state
+
+
+async def visualization_node(state):
+    dataframe = state.get("dataframe")
+    if dataframe is None:
+        raise ValueError("Dataframe not found in graph state.")
+
+    visualization_plan = state.get("visualization_plan")
+    if visualization_plan is None:
+        raise ValueError("Visualization plan not found in graph state.")
+
+    visualizations = visualization_service.generate_visualizations(
+        dataframe=dataframe,
+        visualization_plan=visualization_plan,
+    )
+
+    print("Running visualization node...")
+
+    return {
+        "visualization_results": visualizations,
+        "_viz_just_completed": "Visualizations generated successfully.",
+    }
 
 
 async def feature_engineering_node(state):
@@ -253,41 +342,26 @@ async def feature_engineering_node(state):
     plan = state.get("feature_engineering_plan")
 
     if df is None or plan is None:
-        state["feature_engineering_report"] = {
-            "error": "Missing dataframe or feature engineering plan"
+        return {
+            "feature_engineering_report": {"error": "Missing dataframe or feature engineering plan"},
+            "_fe_just_completed": "Skipped: missing required inputs",
         }
-        return advance_execution(
-            state, "feature_engineering", "Skipped: missing required inputs",
-            status="skipped",
-        )
 
     service = FeatureEngineeringService()
     transformed_df, report = service.apply_plan(df, plan)
-
-    state["dataframe"] = transformed_df
-    state["feature_engineering_report"] = report
 
     msg = (
         f"Feature engineering complete. "
         f"Shape: {df.shape} -> {transformed_df.shape}. "
         f"Steps: {report['steps_executed']}/{len(plan.steps)} succeeded."
     )
-    return advance_execution(state, "feature_engineering", msg)
+    print("Running feature_engineering node...")
 
-
-async def model_selection_planner_node(state):
-    """LLM reasoning: decides WHICH models to try."""
-    agent = ModelSelectionPlannerAgent()
-
-    plan = await agent.plan(
-        user_query=state.get("user_query", ""),
-        dataset_summary=state.get("dataset_summary"),
-        eda_report=state.get("eda_report", {}),
-        feature_engineering_report=state.get("feature_engineering_report"),
-    )
-
-    state["model_selection_plan"] = plan
-    return state
+    return {
+        "dataframe": transformed_df,
+        "feature_engineering_report": report,
+        "_fe_just_completed": msg,
+    }
 
 
 async def training_node(state):
@@ -577,4 +651,25 @@ def route_after_confirmation(state):
 
 async def refinement_cancelled_node(state):
     print("\nRefinement cancelled by user. No changes made.\n")
+    return state
+
+
+async def extract_constraints_node(state):
+    result = await constraints_extractor_agent.extract(state.get("user_query", ""))
+
+    constraints_by_stage: dict[str, list[str]] = {}
+    for c in result.constraints:
+        constraints_by_stage.setdefault(c.stage, []).append(c.instruction)
+
+    state["user_constraints"] = constraints_by_stage
+
+    print("\n========== USER CONSTRAINTS (Step 1 — not yet injected) ==========")
+    if constraints_by_stage:
+        for stage, instructions in constraints_by_stage.items():
+            for instr in instructions:
+                print(f"  [{stage}] {instr}")
+    else:
+        print("  (none found)")
+    print("====================================\n")
+
     return state

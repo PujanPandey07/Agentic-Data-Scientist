@@ -19,8 +19,16 @@ class FeatureEngineeringService:
         self,
         df: pd.DataFrame,
         plan: FeatureEngineeringPlan,
+        target_column: str | None = None,
     ) -> tuple[pd.DataFrame, dict]:
-        """Execute a feature engineering plan step-by-step."""
+        """Execute a feature engineering plan step-by-step.
+
+        target_column, if given, is a hard guard: no step is allowed to
+        touch it, regardless of what the LLM-generated plan says. This is
+        defense-in-depth against target leakage (e.g. the planner
+        label-encoding the target itself and leaving a near-perfect proxy
+        feature behind).
+        """
         original_shape = df.shape
         report_steps = []
         all_added = []
@@ -43,23 +51,40 @@ class FeatureEngineeringService:
                 "columns_removed": [],
                 "warnings": plan.warnings if plan else [],
                 "notes": plan.notes if plan else [],
+                "target_column_guard_triggered": 0,
             }
 
         logger.info(
             f"Starting feature engineering: {len(plan.steps)} steps planned, "
-            f"strategy={plan.strategy}, shape={original_shape}"
+            f"strategy={plan.strategy}, shape={original_shape}, "
+            f"target_column={target_column!r}"
         )
+
+        guard_trigger_count = 0
 
         # Execute each step in order
         for step in plan.steps:
+            safe_step, target_excluded = self._strip_target_column(
+                step, target_column
+            )
+            if target_excluded:
+                guard_trigger_count += 1
+                logger.warning(
+                    f"Step '{step.action}' named target column "
+                    f"'{target_column}' in its columns — excluded it before "
+                    f"execution to prevent data leakage. Original columns: "
+                    f"{step.columns}, sanitized: {safe_step.columns}"
+                )
+
             try:
-                result = self._execute_step(current_df, step)
+                result = self._execute_step(current_df, safe_step)
                 current_df = result["dataframe"]
                 report_steps.append({
                     "action": step.action,
                     "columns": step.columns,
                     "status": "success",
                     "details": result.get("details", ""),
+                    "target_column_excluded": target_excluded,
                 })
                 all_added.extend(result.get("columns_added", []))
                 all_removed.extend(result.get("columns_removed", []))
@@ -72,6 +97,7 @@ class FeatureEngineeringService:
                     "columns": step.columns,
                     "status": "failed",
                     "error": str(e),
+                    "target_column_excluded": target_excluded,
                 })
                 logger.warning(f"Step '{step.action}' failed, skipped: {e}")
 
@@ -88,7 +114,15 @@ class FeatureEngineeringService:
             "columns_removed": all_removed,
             "warnings": plan.warnings,
             "notes": plan.notes,
+            "target_column_guard_triggered": guard_trigger_count,
         }
+
+        if guard_trigger_count:
+            logger.warning(
+                f"Target column guard triggered {guard_trigger_count} time(s) "
+                f"this run — the planner referenced the target column despite "
+                f"being told not to. Worth checking the prompt/EDA context."
+            )
 
         logger.info(
             f"Feature engineering done: {report['steps_executed']} succeeded, "
@@ -96,6 +130,18 @@ class FeatureEngineeringService:
         )
 
         return current_df, report
+
+    def _strip_target_column(
+        self, step: FeatureEngineeringStep, target_column: str | None
+    ) -> tuple[FeatureEngineeringStep, bool]:
+        """Return a sanitized copy of the step with target_column removed
+        from its columns list, if present. Never mutates the original step.
+        """
+        if not target_column or target_column not in step.columns:
+            return step, False
+
+        safe_columns = [c for c in step.columns if c != target_column]
+        return step.model_copy(update={"columns": safe_columns}), True
 
     def _execute_step(self, df: pd.DataFrame, step: FeatureEngineeringStep):
         """Dispatch to the correct action handler."""
@@ -171,7 +217,6 @@ class FeatureEngineeringService:
         return self._scale(df, step, RobustScaler(), "Robust")
 
     def _scale(self, df: pd.DataFrame, step: FeatureEngineeringStep, scaler, name: str):
-        # Only scale numeric columns — silently skip non-numeric
         cols = [
             c for c in step.columns
             if c in df.columns and pd.api.types.is_numeric_dtype(df[c])
@@ -204,7 +249,6 @@ class FeatureEngineeringService:
             if c in new_df.columns and pd.api.types.is_numeric_dtype(new_df[c])
         ]
         for col in cols:
-            # log1p handles zeros safely: log(0) is undefined, log1p(0) = 0
             new_df[col] = np.log1p(new_df[col].clip(lower=0))
 
         return {
@@ -286,7 +330,6 @@ class FeatureEngineeringService:
         operation = (step.params or {}).get("operation", "multiply")
         ops = {
             "multiply": lambda a, b: a * b,
-            # epsilon avoids div-by-zero
             "divide": lambda a, b: a / (b + 1e-9),
             "add": lambda a, b: a + b,
             "subtract": lambda a, b: a - b,
@@ -323,14 +366,11 @@ class FeatureEngineeringService:
         poly_features = poly.fit_transform(df[cols])
         feature_names = poly.get_feature_names_out(cols)
 
-        # Build DataFrame with polynomial features
         poly_df = pd.DataFrame(
             poly_features, columns=feature_names, index=df.index)
 
-        # Remove original columns from poly_df to avoid duplication
         poly_df = poly_df.drop(columns=cols, errors="ignore")
 
-        # Concatenate: drop originals, add polynomial expansion
         new_df = pd.concat([df.drop(columns=cols), poly_df], axis=1)
 
         return {
@@ -357,7 +397,6 @@ class FeatureEngineeringService:
         cols_to_keep = numeric_df.columns[selector.get_support()].tolist()
         cols_to_drop = numeric_df.columns[~selector.get_support()].tolist()
 
-        # Preserve non-numeric columns untouched
         non_numeric = df.select_dtypes(exclude=[np.number]).columns.tolist()
         new_df = df[non_numeric + cols_to_keep]
 
@@ -381,12 +420,10 @@ class FeatureEngineeringService:
         threshold = (step.params or {}).get("threshold", 0.90)
         corr_matrix = numeric_df.corr().abs()
 
-        # Upper triangle only — avoid checking A-B and B-A separately
         upper = corr_matrix.where(
             np.triu(np.ones(corr_matrix.shape), k=1).astype(bool)
         )
 
-        # Find columns that have ANY correlation above threshold
         to_drop = [
             column for column in upper.columns
             if any(upper[column] > threshold)

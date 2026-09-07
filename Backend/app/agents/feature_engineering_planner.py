@@ -17,15 +17,21 @@ class FeatureEngineeringPlannerAgent:
         user_query: str,
         dataset_summary,
         eda_report: dict,
+        target_column: str | None = None,
         constraints: list[str] | None = None,
     ) -> FeatureEngineeringPlan:
         logger.info("Starting feature engineering planning")
+
+        target_section = (
+            f"\nTarget Column (DO NOT modify, encode, drop, or reference in ANY step): {target_column}"
+            if target_column else ""
+        )
 
         user_content = f"""User Query: {user_query}
 
 Dataset Summary: {dataset_summary}
 
-EDA Report: {eda_report}{format_constraints(constraints)}
+EDA Report: {eda_report}{target_section}{format_constraints(constraints)}
 
 Generate the feature engineering plan now."""
 

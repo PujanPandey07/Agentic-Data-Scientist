@@ -1,5 +1,6 @@
 import time
 import logging
+import warnings
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import cross_val_score, train_test_split
@@ -9,12 +10,28 @@ from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.svm import SVC, SVR
 from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.base import clone
+from sklearn.exceptions import ConvergenceWarning
 
 from schema.model_selection import ModelSelectionPlan, ModelCandidate
 import os
 import joblib
 
 logger = logging.getLogger(__name__)
+
+
+def _fit_with_convergence_check(fit_callable):
+    """Run a fit/cross-validation call while watching for ConvergenceWarning.
+    Returns (result, converged: bool). Used so training/tuning reports can
+    tell explain_result whether a model actually finished training, instead
+    of the LLM having to guess at causes for a CV-vs-test score gap that
+    might really just be non-convergence, not overfitting."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", ConvergenceWarning)
+        result = fit_callable()
+    converged = not any(
+        issubclass(w.category, ConvergenceWarning) for w in caught
+    )
+    return result, converged
 
 
 class TrainingService:
@@ -25,7 +42,6 @@ class TrainingService:
         Train candidate models according to the plan.
         Returns: (best_trained_model, training_report, best_candidate)
         """
-        # Separate features and target
         if target_column not in df.columns:
             logger.error(
                 f"Target column '{target_column}' not found in dataframe")
@@ -35,7 +51,6 @@ class TrainingService:
         X = df.drop(columns=[target_column])
         y = df[target_column]
 
-        # Determine if classification or regression from metric name
         is_classification = self._is_classification_metric(plan.scoring_metric)
 
         logger.info(
@@ -43,10 +58,8 @@ class TrainingService:
             f"classification={is_classification}, metric={plan.scoring_metric}"
         )
 
-        # Encode target if classification and string labels
         y_encoded = self._encode_target(y, is_classification)
 
-        # Sample if needed
         X_sample, y_sample, used_sampling = self._sample_data(
             X, y_encoded, plan.sample_size, is_classification
         )
@@ -54,18 +67,15 @@ class TrainingService:
             logger.info(
                 f"Sampled data for candidate selection: {X_sample.shape}")
 
-        # Train candidates sequentially
         results = []
         best_score = -float("inf")
         best_candidate = None
         best_model = None
         time_spent = 0.0
 
-        # Sort by priority
         candidates = sorted(plan.candidates, key=lambda c: c.priority)
 
         for candidate in candidates:
-            # Check time budget
             if time_spent >= plan.time_budget_minutes * 60:
                 results.append({
                     "algorithm": candidate.algorithm,
@@ -79,22 +89,25 @@ class TrainingService:
             start_time = time.time()
 
             try:
-                # Get model instance
                 model = self._get_model(candidate, is_classification)
 
-                # Cross-validation
-                scores = cross_val_score(
-                    model,
-                    X_sample,
-                    y_sample,
-                    cv=plan.cv_folds,
-                    scoring=plan.scoring_metric,
+                scores, converged = _fit_with_convergence_check(
+                    lambda: cross_val_score(
+                        model, X_sample, y_sample,
+                        cv=plan.cv_folds, scoring=plan.scoring_metric,
+                    )
                 )
                 mean_score = float(scores.mean())
                 std_score = float(scores.std())
 
                 elapsed = time.time() - start_time
                 time_spent += elapsed
+
+                if not converged:
+                    logger.warning(
+                        f"'{candidate.algorithm}' did not fully converge "
+                        f"during cross-validation — score may be unstable"
+                    )
 
                 result = {
                     "algorithm": candidate.algorithm,
@@ -106,14 +119,15 @@ class TrainingService:
                     "actual_time_seconds": round(elapsed, 2),
                     "hyperparams": candidate.hyperparams,
                     "reason": candidate.reason,
+                    "converged": converged,
                 }
                 results.append(result)
                 logger.info(
                     f"'{candidate.algorithm}' scored {round(mean_score, 5)} "
-                    f"(+/- {round(std_score, 5)}) in {round(elapsed, 2)}s"
+                    f"(+/- {round(std_score, 5)}) in {round(elapsed, 2)}s "
+                    f"[converged={converged}]"
                 )
 
-                # Track best
                 if mean_score > best_score:
                     best_score = mean_score
                     best_candidate = candidate
@@ -131,7 +145,6 @@ class TrainingService:
                 })
                 logger.warning(f"'{candidate.algorithm}' failed: {e}")
 
-        # If no model succeeded, raise
         if best_model is None:
             logger.error("All candidate models failed")
             raise RuntimeError(
@@ -140,15 +153,6 @@ class TrainingService:
         logger.info(
             f"Best candidate: {best_candidate.algorithm} (score={round(best_score, 5)})")
 
-        # ------------------------------------------------------------- #
-        # Forced algorithm override
-        #
-        # If the user's query explicitly named an algorithm, the planner
-        # sets plan.forced_algorithm. We still trained every candidate
-        # above for honest comparison/reporting, but the final selection
-        # must honor the user's explicit instruction regardless of how
-        # it scored against the alternatives.
-        # ------------------------------------------------------------- #
         forced_override_applied = False
         forced_algorithm = getattr(plan, "forced_algorithm", None)
 
@@ -181,17 +185,27 @@ class TrainingService:
                     f"winner '{best_candidate.algorithm}'"
                 )
 
-        # Retrain best model on FULL data
-        if used_sampling:
-            final_model = clone(best_model)
-            final_model.fit(X, y_encoded)
-            retrain_note = "Best model retrained on full dataset after selection on sample."
-        else:
-            final_model = clone(best_model)
-            final_model.fit(X, y_encoded)
-            retrain_note = "Best model trained on full dataset (no sampling needed)."
+        # Retrain best model on FULL data — this is the model that actually
+        # gets saved/evaluated/deployed, so its convergence status matters
+        # most of all.
+        final_model = clone(best_model)
+        _, final_model_converged = _fit_with_convergence_check(
+            lambda: final_model.fit(X, y_encoded)
+        )
 
-        # BUILD REPORT FIRST
+        if not final_model_converged:
+            logger.warning(
+                f"Final retrained '{best_candidate.algorithm}' model did NOT "
+                f"fully converge — reported scores may be unstable/unreliable, "
+                f"not just 'slightly overfit'"
+            )
+
+        retrain_note = (
+            "Best model retrained on full dataset after selection on sample."
+            if used_sampling else
+            "Best model trained on full dataset (no sampling needed)."
+        )
+
         report = {
             "strategy": plan.strategy,
             "sample_size": plan.sample_size,
@@ -210,10 +224,10 @@ class TrainingService:
             "forced_algorithm": forced_algorithm,
             "forced_override_applied": forced_override_applied,
             "retrain_note": retrain_note,
+            "final_model_converged": final_model_converged,
             "notes": plan.notes,
         }
 
-        # THEN save model and add path
         os.makedirs("outputs/models", exist_ok=True)
         model_path = f"outputs/models/{dataset_id}_best_model.pkl"
         joblib.dump(final_model, model_path)
@@ -224,11 +238,10 @@ class TrainingService:
         return final_model, report, best_candidate
 
     # --------------------------------------------------------------------- #
-    # Helpers
+    # Helpers — unchanged from before
     # --------------------------------------------------------------------- #
 
     def _is_classification_metric(self, metric: str) -> bool:
-        """Infer problem type from metric name."""
         classification_metrics = {
             "accuracy", "precision", "recall", "f1", "f1_macro",
             "f1_weighted", "roc_auc", "neg_log_loss",
@@ -236,49 +249,34 @@ class TrainingService:
         return metric in classification_metrics
 
     def _encode_target(self, y: pd.Series, is_classification: bool) -> np.ndarray:
-        """Encode string targets to integers for sklearn."""
         if not is_classification:
             return y.values
-
         if pd.api.types.is_numeric_dtype(y):
             return y.values
-
-        # String labels → integer encoding
         le = LabelEncoder()
         return le.fit_transform(y.values)
 
     def _sample_data(self, X, y, sample_size, is_classification):
-        """Sample data if needed. Stratified for classification, random for regression."""
         if sample_size is None or len(X) <= sample_size:
             return X, y, False
 
         if is_classification:
-            # Stratified sampling preserves class balance
             X_sample, _, y_sample, _ = train_test_split(
-                X, y,
-                train_size=sample_size,
-                stratify=y,
-                random_state=42,
+                X, y, train_size=sample_size, stratify=y, random_state=42,
             )
         else:
-            # Regression: stratify by target bins
             y_binned = pd.qcut(pd.Series(y), q=10,
                                labels=False, duplicates="drop")
             X_sample, _, y_sample, _ = train_test_split(
-                X, y,
-                train_size=sample_size,
-                stratify=y_binned,
-                random_state=42,
+                X, y, train_size=sample_size, stratify=y_binned, random_state=42,
             )
 
         return X_sample, y_sample, True
 
     def _get_model(self, candidate: ModelCandidate, is_classification: bool):
-        """Instantiate sklearn model based on algorithm name."""
         algo = candidate.algorithm
         params = candidate.hyperparams or {}
 
-        # Classification models
         if is_classification:
             if algo == "logistic_regression":
                 safe_params = {k: v for k, v in params.items() if k not in [
@@ -289,8 +287,8 @@ class TrainingService:
             elif algo == "xgboost":
                 try:
                     from xgboost import XGBClassifier
-                    safe_params = {k: v for k,
-                                   v in params.items() if k != "use_label_encoder"}
+                    safe_params = {
+                        k: v for k, v in params.items() if k != "use_label_encoder"}
                     return XGBClassifier(**safe_params)
                 except ImportError:
                     raise ImportError(
@@ -303,7 +301,6 @@ class TrainingService:
                     raise ImportError(
                         "lightgbm not installed. Run: pip install lightgbm")
             elif algo == "svm_rbf":
-                # Filter out kernel
                 params = {k: v for k, v in params.items() if k != "kernel"}
                 return SVC(kernel="rbf", **params)
             elif algo == "svm_linear":
@@ -312,7 +309,6 @@ class TrainingService:
             elif algo == "neural_network_mlp":
                 return MLPClassifier(**params)
 
-        # Regression models
         else:
             if algo == "logistic_regression":
                 raise ValueError(

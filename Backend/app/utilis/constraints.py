@@ -11,6 +11,12 @@ def format_constraints(constraints: list[str] | None) -> str:
     )
 
 
+# Order matters: this dict is scanned top-to-bottom and the FIRST matching
+# keyword wins. More specific multi-word phrases must come before shorter
+# substrings they contain — e.g. "linear svm" must be checked before the
+# bare "svm" entry, since "svm" is itself a substring of "linear svm" and
+# would otherwise always win first regardless of which phrase is actually
+# more specific to the user's request.
 ALGORITHM_KEYWORDS = {
     "xgboost": "xgboost",
     "xgb": "xgboost",
@@ -21,9 +27,24 @@ ALGORITHM_KEYWORDS = {
     "lightgbm": "lightgbm",
     "light gbm": "lightgbm",
     "lgbm": "lightgbm",
+
+    # Linear SVM variants — MUST precede the generic "svm"/"support vector"
+    # entries below.
+    "linear svm": "svm_linear",
+    "svm linear": "svm_linear",
+    "linear support vector machine": "svm_linear",
+    "linear support vector": "svm_linear",
+    "svm with a linear kernel": "svm_linear",
+    "linear kernel svm": "svm_linear",
+
+    # RBF SVM — explicit variants, plus the bare/generic fallback.
+    "rbf svm": "svm_rbf",
+    "svm rbf": "svm_rbf",
+    "svm with an rbf kernel": "svm_rbf",
     "svm": "svm_rbf",
     "support vector machine": "svm_rbf",
     "support vector": "svm_rbf",
+
     "neural network": "neural_network_mlp",
     "mlp": "neural_network_mlp",
 }

@@ -1,11 +1,13 @@
 import os
 import time
 import logging
+import warnings
 import joblib
 import optuna
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import cross_val_score
+from sklearn.exceptions import ConvergenceWarning
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
@@ -28,9 +30,6 @@ class HyperparameterTuningService:
             le = LabelEncoder()
             y = le.fit_transform(y)
 
-        # Computed once, up front, rather than relying on each fold's fit()
-        # to infer it — avoids the intermittent XGBoost "num_class should be
-        # greater equal to 1" error seen across repeated Optuna trials.
         num_classes = int(pd.Series(y).nunique()
                           ) if problem_type == "classification" else None
 
@@ -39,11 +38,21 @@ class HyperparameterTuningService:
         study = optuna.create_study(direction="maximize")
         start_time = time.time()
 
+        trials_with_convergence_warnings = 0
+
         def objective(trial):
+            nonlocal trials_with_convergence_warnings
             model = self._suggest_model(
                 trial, best_candidate.algorithm, problem_type, num_classes)
-            scores = cross_val_score(
-                model, X, y, cv=3, scoring=scoring, n_jobs=-1)
+
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always", ConvergenceWarning)
+                scores = cross_val_score(
+                    model, X, y, cv=3, scoring=scoring, n_jobs=-1)
+
+            if any(issubclass(w.category, ConvergenceWarning) for w in caught):
+                trials_with_convergence_warnings += 1
+
             return float(scores.mean())
 
         study.optimize(objective, n_trials=max_trials,
@@ -53,7 +62,24 @@ class HyperparameterTuningService:
         best_params = study.best_params
         final_model = self._build_model(
             best_candidate.algorithm, best_params, problem_type, num_classes)
-        final_model.fit(X, y)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", ConvergenceWarning)
+            final_model.fit(X, y)
+        final_model_converged = not any(
+            issubclass(w.category, ConvergenceWarning) for w in caught
+        )
+
+        if not final_model_converged:
+            logger.warning(
+                f"Final tuned '{best_candidate.algorithm}' model did NOT "
+                f"fully converge — reported tuning score may be unstable"
+            )
+        if trials_with_convergence_warnings:
+            logger.warning(
+                f"{trials_with_convergence_warnings}/{len(study.trials)} "
+                f"tuning trials had convergence warnings"
+            )
 
         os.makedirs("outputs/models", exist_ok=True)
         tuned_path = f"outputs/models/{dataset_id}_tuned_model.pkl"
@@ -64,6 +90,8 @@ class HyperparameterTuningService:
             "best_trial_score": round(study.best_value, 5) if study.best_trial else None,
             "best_params": best_params,
             "num_trials_completed": len(study.trials),
+            "trials_with_convergence_warnings": trials_with_convergence_warnings,
+            "final_model_converged": final_model_converged,
             "time_seconds": round(elapsed, 2),
             "tuned_model_path": tuned_path,
         }
@@ -78,7 +106,7 @@ class HyperparameterTuningService:
 
         logger.info(
             f"Tuning done: {report['num_trials_completed']} trials in {report['time_seconds']}s, "
-            f"best_score={report['best_trial_score']}"
+            f"best_score={report['best_trial_score']}, converged={final_model_converged}"
         )
 
         return final_model, report
@@ -106,10 +134,6 @@ class HyperparameterTuningService:
             }
             from xgboost import XGBClassifier, XGBRegressor
             if problem_type == "classification":
-                # Explicit objective/num_class for multiclass avoids
-                # XGBoost's sklearn wrapper occasionally mis-inferring
-                # num_class across repeated fresh instantiations in
-                # Optuna's trial loop.
                 if num_classes is not None and num_classes > 2:
                     params["objective"] = "multi:softprob"
                     params["num_class"] = num_classes
@@ -179,11 +203,6 @@ class HyperparameterTuningService:
         raise ValueError(f"Tuning not implemented for: {algorithm}")
 
     def _build_model(self, algorithm, params, problem_type, num_classes=None):
-        # Shim trial object that just replays the already-chosen params
-        # instead of asking Optuna to suggest new ones. suggest_categorical
-        # needs a fallback default even when the param isn't in `params`
-        # (e.g. n_layers/layer_size not directly present as final params
-        # for MLP — see note below).
         shim = type(
             "T", (),
             {

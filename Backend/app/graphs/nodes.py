@@ -2,7 +2,7 @@ import logging
 from sklearn.model_selection import train_test_split as sk_train_test_split
 
 from utilis.constraints import format_constraints, detect_forced_algorithm
-from schema.model_selection import ModelCandidate
+from schema.model_selection import ModelCandidate, ModelSelectionPlan
 from langgraph.types import interrupt
 from agents.constraint_extractor import constraints_extractor_agent
 
@@ -27,6 +27,7 @@ from analysis.inspector import dataset_inspector
 from services.cleaning_service import CleaningService
 from services.executiopn_service import execution_service
 from agents.visualization_planner import visualization_planner_agent
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,38 @@ def advance_execution(state, task_name: str, message: str, status: str = "succes
     )
 
     return state
+
+
+# State keys produced by each stage. Cleared when the stage (or anything
+# upstream that regenerates it) is about to rerun, so stale results never
+# leak across pipeline runs or refinements.
+STAGE_FIELDS = {
+    "cleaning": ["cleaning_report"],
+    "eda": ["eda_report"],
+    "visualization": ["visualization_plan", "visualization_results", "_viz_just_completed"],
+    "feature_engineering": ["feature_engineering_plan", "feature_engineering_report", "train_df", "test_df", "_fe_just_completed"],
+    "model_selection": ["model_selection_plan", "training_report", "trained_model_path"],
+    "hyperparameter_tuning": ["hyperparameter_tuning_report", "tuned_model_path"],
+    "evaluation": ["evaluation_report"],
+    "reporting": ["final_report"],
+}
+
+
+def _clear_stale_fields(state, from_stage: str):
+    """Remove all results produced by `from_stage` and every downstream stage.
+    Called before re-executing part of the pipeline so old artifacts from a
+    previous run (or a prior refine) don't leak forward.
+    """
+    stages_to_clear = [from_stage] + CASCADE_MAP.get(from_stage, [])
+    cleared = []
+    for stage in stages_to_clear:
+        for key in STAGE_FIELDS.get(stage, []):
+            if key in state and state.get(key) is not None:
+                state[key] = None
+                cleared.append(key)
+    if cleared:
+        logger.info(
+            f"Cleared stale fields for stages {stages_to_clear}: {cleared}")
 
 
 def _ensure_train_test_split(state, test_size: float = 0.2, random_state: int = 42):
@@ -151,20 +184,22 @@ async def planner_node(state):
 
 
 async def initialize_execution_node(state):
-
     plan = state.get("analysis_plan")
     tasks = plan.tasks if plan else []
 
     state["current_task"] = tasks[0] if tasks else None
     state["remaining_tasks"] = tasks[1:] if len(tasks) > 1 else []
     state["completed_tasks"] = []
-
     state["execution_logs"] = [
         {
             "node": "initialize_execution",
             "message": "Execution queue initialized."
         }
     ]
+
+    # Fresh pipeline — clear any artifacts left from a previous run on this
+    # thread so stale results never leak forward.
+    _clear_stale_fields(state, "cleaning")
 
     return state
 
@@ -317,7 +352,9 @@ async def visualization_planner_node(state):
     visualization_plan = await visualization_planner_agent.plan_visualizations(
         user_query=user_query,
         dataset_summary=dataset_summary,
-        eda_report=eda_report
+        eda_report=eda_report,
+        constraints=(state.get("user_constraints")
+                     or {}).get("visualization", []),
     )
 
     # Partial-update return — NOT the whole state. Two nodes running
@@ -327,11 +364,56 @@ async def visualization_planner_node(state):
 
 
 async def model_selection_planner_node(state):
-    """LLM reasoning: decides WHICH models to try."""
-    agent = ModelSelectionPlannerAgent()
+    """LLM reasoning: decides WHICH models to try.
+
+    If a forced algorithm is detected in user constraints, skip the LLM
+    call entirely and build a deterministic plan with sensible defaults.
+    """
     constraints = (state.get("user_constraints")
                    or {}).get("model_selection", [])
 
+    # ------------------------------------------------------------------
+    # FAST PATH: user explicitly named an algorithm — skip the LLM entirely
+    # ------------------------------------------------------------------
+    forced = detect_forced_algorithm(constraints)
+    if forced:
+        analysis_plan = state.get("analysis_plan")
+        problem_type = analysis_plan.problem_type if analysis_plan else "classification"
+
+        scoring_metric = "accuracy" if problem_type == "classification" else "neg_mean_squared_error"
+
+        plan = ModelSelectionPlan(
+            strategy="standard",
+            sample_size=None,
+            candidates=[
+                ModelCandidate(
+                    algorithm=forced,
+                    reason=f"User explicitly requested '{forced}' via constraint.",
+                    estimated_time_seconds=30,
+                    hyperparams={},
+                    priority=1,
+                )
+            ],
+            cv_folds=5,
+            scoring_metric=scoring_metric,
+            time_budget_minutes=5,
+            notes=[
+                f"Algorithm forced by user constraint: '{forced}'. "
+                "LLM planner skipped to save tokens and avoid rate limits."
+            ],
+            forced_algorithm=forced,
+        )
+
+        logger.info(
+            f"Forced algorithm '{forced}' detected — skipping model-selection LLM call"
+        )
+        state["model_selection_plan"] = plan
+        return state
+
+    # ------------------------------------------------------------------
+    # NORMAL PATH: no forced algorithm — ask the LLM to choose candidates
+    # ------------------------------------------------------------------
+    agent = ModelSelectionPlannerAgent()
     plan = await agent.plan(
         user_query=state.get("user_query", ""),
         dataset_summary=state.get("dataset_summary"),
@@ -340,11 +422,7 @@ async def model_selection_planner_node(state):
         constraints=constraints,
     )
 
-    # Deterministic override — don't rely on the LLM to notice and set
-    # forced_algorithm correctly. If the user's constraint text names a
-    # known algorithm, force it in code and skip comparing against other
-    # candidates entirely (no point training models that were never going
-    # to be chosen).
+    # Safety net: if the LLM somehow missed the constraint, enforce it here
     forced = detect_forced_algorithm(constraints)
     if forced:
         existing = next(
@@ -360,7 +438,8 @@ async def model_selection_planner_node(state):
             )
         ]
         logger.info(
-            f"Forced algorithm '{forced}' detected — skipping candidate comparison")
+            f"Forced algorithm '{forced}' detected post-LLM — overriding candidates"
+        )
 
     state["model_selection_plan"] = plan
     return state
@@ -397,21 +476,14 @@ async def feature_engineering_planner_node(state):
         dataset_summary=state.get("dataset_summary"),
         eda_report=state.get("eda_report", {}),
         target_column=state.get("target_column"),
+        constraints=(state.get("user_constraints") or {}
+                     ).get("feature_engineering", []),
     )
 
     return {"feature_engineering_plan": plan}
 
 
 async def feature_engineering_node(state):
-    """Deterministic execution: applies the plan to the dataframe.
-
-    Partial-update return only — NOT advance_execution / whole state.
-    This runs concurrently with visualization_node during fan-out, so it
-    must touch only its own keys or LangGraph can't merge the two
-    concurrent writes. Task-pointer advancement (current_task/
-    remaining_tasks) is handled entirely by router now, for both the
-    fan-out and standalone cases.
-    """
     df = state.get("dataframe")
     plan = state.get("feature_engineering_plan")
     target_column = state.get("target_column")
@@ -419,31 +491,60 @@ async def feature_engineering_node(state):
     print("Running feature_engineering node...")
 
     if df is None or plan is None:
-        # Skipped — no _fe_just_completed set, so router correctly won't
-        # add "feature_engineering" to completed_tasks for this run.
         return {
             "feature_engineering_report": {
                 "error": "Missing dataframe or feature engineering plan"
             },
         }
 
+    # IMPORTANT:
+    # Split BEFORE feature engineering so that transformations
+    # such as scaling, encoding, variance selection, correlation
+    # selection, binning, and polynomial features learn only from train.
+    split_state = dict(state)
+
+    _ensure_train_test_split(split_state)
+
+    train_df = split_state.get("train_df")
+    test_df = split_state.get("test_df")
+
+    if train_df is None or test_df is None:
+        return {
+            "feature_engineering_report": {
+                "error": "Failed to create train/test split before feature engineering"
+            },
+        }
+
     service = FeatureEngineeringService()
-    transformed_df, report = service.apply_plan(
-        df, plan, target_column=target_column)
+
+    train_transformed, test_transformed, report = (
+        service.apply_plan_train_test(
+            train_df,
+            test_df,
+            plan,
+            target_column=target_column,
+        )
+    )
+
+    # Keep a combined dataframe for downstream state/report compatibility.
+    transformed_df = pd.concat(
+        [train_transformed, test_transformed],
+        ignore_index=True,
+    )
 
     msg = (
         f"Feature engineering complete. "
-        f"Shape: {df.shape} -> {transformed_df.shape}. "
+        f"Train: {train_df.shape} -> {train_transformed.shape}, "
+        f"Test: {test_df.shape} -> {test_transformed.shape}. "
         f"Steps: {report['steps_executed']}/{len(plan.steps)} succeeded."
     )
 
     return {
         "dataframe": transformed_df,
+        "train_df": train_transformed,
+        "test_df": test_transformed,
         "feature_engineering_report": report,
         "_fe_just_completed": msg,
-        # Data changed — any cached train/test split is now stale.
-        "train_df": None,
-        "test_df": None,
     }
 
 
@@ -720,19 +821,20 @@ async def confirm_refinement_node(state):
     state["refine_confirmed"] = decision
 
     if decision:
-        # refine_step never routes through dataset_node, so a thread that's
-        # only ever been driven via refine_step has no dataframe in its
-        # checkpoint yet. Reload it here rather than silently cascading
-        # through every node's "missing input" skip branch.
+        # ... existing dataframe reload logic stays exactly as-is ...
         if state.get("dataframe") is None:
             print("DEBUG: dataframe missing before cascade — reloading from dataset_id")
             dataframe = dataset_service.load_dataset(state["dataset_id"])
             state["dataframe"] = dataframe
             if state.get("dataset_summary") is None:
-                state["dataset_summary"] = dataset_inspector.inspect(
-                    dataframe)
+                state["dataset_summary"] = dataset_inspector.inspect(dataframe)
 
         target = state.get("refine_target")
+
+        # Clear the target stage and everything downstream so old results
+        # (e.g. a previous training_report) don't mix with new ones.
+        _clear_stale_fields(state, target)
+
         state["current_task"] = target
         state["remaining_tasks"] = CASCADE_MAP.get(target, [])
         state["completed_tasks"] = state.get("completed_tasks") or []

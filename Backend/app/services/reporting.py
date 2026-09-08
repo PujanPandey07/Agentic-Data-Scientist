@@ -111,6 +111,32 @@ class ReportingService:
             }
 
         training = state.get("training_report") or {}
+        tuning = state.get("hyperparameter_tuning_report") or {}
+
+        # If either the initially-trained OR the tuned model failed to fully
+        # converge, any recommendation about accuracy/overfitting is on
+        # shaky ground — flag this explicitly instead of letting a
+        # downstream reader (or explain_result) invent a wrong explanation
+        # for a CV-vs-test score gap that's actually just non-convergence.
+        convergence_warning = None
+        if training.get("final_model_converged") is False:
+            convergence_warning = (
+                "WARNING: the trained model did not fully converge during "
+                "training. Reported scores may be unstable and not "
+                "representative of the model's true performance — this is "
+                "a different and more serious issue than overfitting. "
+                "Common causes: unscaled features (especially for SVM/"
+                "neural network models) or too few iterations."
+            )
+        elif tuning.get("final_model_converged") is False:
+            convergence_warning = (
+                "WARNING: the tuned model did not fully converge during "
+                "hyperparameter tuning. Reported scores may be unstable and "
+                "not representative of the model's true performance — this "
+                "is a different and more serious issue than overfitting. "
+                "Common causes: unscaled features (especially for SVM/"
+                "neural network models) or too few iterations."
+            )
 
         conclusions = {
             "best_model": training.get("best_algorithm", "N/A"),
@@ -120,11 +146,16 @@ class ReportingService:
             "recommendation": "N/A",
         }
 
+        if convergence_warning:
+            conclusions["convergence_warning"] = convergence_warning
+
         if not ran_evaluation:
             conclusions["recommendation"] = (
                 "Model was trained/selected, but evaluation did not run "
                 "in this session."
             )
+            if convergence_warning:
+                conclusions["recommendation"] += f" {convergence_warning}"
             return conclusions
 
         evaluation = state.get("evaluation_report") or {}
@@ -156,5 +187,8 @@ class ReportingService:
                     conclusions["recommendation"] = "Reasonable fit. Consider non-linear models."
                 else:
                     conclusions["recommendation"] = "Weak fit. Review features or collect more data."
+
+        if convergence_warning:
+            conclusions["recommendation"] = f"{convergence_warning} {conclusions['recommendation']}"
 
         return conclusions

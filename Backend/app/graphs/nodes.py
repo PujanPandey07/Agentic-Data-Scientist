@@ -821,7 +821,6 @@ async def confirm_refinement_node(state):
     state["refine_confirmed"] = decision
 
     if decision:
-        # ... existing dataframe reload logic stays exactly as-is ...
         if state.get("dataframe") is None:
             print("DEBUG: dataframe missing before cascade — reloading from dataset_id")
             dataframe = dataset_service.load_dataset(state["dataset_id"])
@@ -830,9 +829,25 @@ async def confirm_refinement_node(state):
                 state["dataset_summary"] = dataset_inspector.inspect(dataframe)
 
         target = state.get("refine_target")
+        refine_instruction = state.get("refine_instruction", "")
 
-        # Clear the target stage and everything downstream so old results
-        # (e.g. a previous training_report) don't mix with new ones.
+        # Re-extract constraints from the REFINEMENT instruction itself,
+        # not the original user_query. A refinement supersedes whatever
+        # constraint previously applied to the stages it touches — e.g.
+        # "use a linear SVM instead" must overwrite a stale "use lightgbm"
+        # constraint from the original run_pipeline call, not coexist
+        # alongside it.
+        if refine_instruction:
+            new_constraints = await constraints_extractor_agent.extract(refine_instruction)
+            existing = dict(state.get("user_constraints") or {})
+            for c in new_constraints.constraints:
+                existing[c.stage] = [c.instruction]  # overwrite, don't append
+            state["user_constraints"] = existing
+            logger.info(
+                f"Re-extracted constraints from refinement instruction, "
+                f"overwrote stages: {[c.stage for c in new_constraints.constraints]}"
+            )
+
         _clear_stale_fields(state, target)
 
         state["current_task"] = target

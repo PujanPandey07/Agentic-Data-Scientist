@@ -143,9 +143,15 @@ class HyperparameterTuningService:
             return XGBRegressor(**params)
 
         elif algorithm == "logistic_regression":
+            # NOTE: `penalty` (discrete ["l1", "l2"]) is deprecated in this
+            # sklearn version in favor of a continuous `l1_ratio` (0.0 = old
+            # 'l2', 1.0 = old 'l1', anything between = elasticnet-style
+            # blending). This also gives Optuna a continuum to search
+            # instead of only two discrete endpoints — strictly more
+            # expressive, not just a warning fix.
             params = {
                 "C": trial.suggest_float("C", 0.001, 100, log=True),
-                "penalty": trial.suggest_categorical("penalty", ["l1", "l2"]),
+                "l1_ratio": trial.suggest_float("l1_ratio", 0.0, 1.0),
                 "solver": "saga",
                 "max_iter": 1000,
             }
@@ -188,6 +194,15 @@ class HyperparameterTuningService:
             return LGBMRegressor(verbose=-1, **params)
 
         elif algorithm == "neural_network_mlp":
+            # NOTE: early_stopping + n_iter_no_change is a general robustness
+            # improvement (holds out part of training data to detect
+            # plateauing and stop early, usually converging cleaner than
+            # running the full max_iter regardless). This is NOT a confirmed
+            # fix for a specific diagnosed warning — the actual MLP warning
+            # text wasn't available when this was written. If warnings
+            # persist, paste the exact text and this can be tuned precisely
+            # (e.g. raising max_iter further, or adjusting learning_rate_init
+            # range if it's an "optimizer hasn't converged" warning).
             n_layers = trial.suggest_int("n_layers", 1, 3)
             layer_size = trial.suggest_categorical("layer_size", [32, 64, 128])
             params = {
@@ -195,6 +210,8 @@ class HyperparameterTuningService:
                 "alpha": trial.suggest_float("alpha", 1e-5, 1e-1, log=True),
                 "learning_rate_init": trial.suggest_float("learning_rate_init", 1e-4, 1e-1, log=True),
                 "max_iter": 500,
+                "early_stopping": True,
+                "n_iter_no_change": 15,
             }
             from sklearn.neural_network import MLPClassifier, MLPRegressor
             return MLPClassifier(**params) if problem_type == "classification" else MLPRegressor(**params)

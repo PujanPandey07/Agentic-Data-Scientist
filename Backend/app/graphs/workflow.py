@@ -7,7 +7,8 @@ from graphs.nodes import (
     visualization_planner_node, feature_engineering_planner_node, feature_engineering_node,
     model_selection_planner_node, training_node, evaluation_node, reporting_node,
     hyperparameter_tuning_node,
-    intent_router_node, route_intent, direct_answer_node,  refine_target_node, extract_constraints_node
+    intent_router_node, route_intent, direct_answer_node,  refine_target_node, extract_constraints_node,
+    plan_review_node, plan_review_cancelled_node, route_after_plan_review,
 )
 
 from graphs.state import GraphState
@@ -38,6 +39,9 @@ builder.add_node("refine_target", refine_target_node)
 builder.add_node("confirm_refinement", confirm_refinement_node)
 builder.add_node("refinement_cancelled", refinement_cancelled_node)
 builder.add_node("extract_constraints", extract_constraints_node)
+builder.add_node("plan_review", plan_review_node)
+builder.add_node("plan_review_cancelled", plan_review_cancelled_node)
+
 # Define workflow
 builder.add_edge(START, "intent_router")
 builder.add_conditional_edges(
@@ -62,7 +66,22 @@ builder.add_conditional_edges(
 
 builder.add_edge("dataset", "planner")
 builder.add_edge("planner", "extract_constraints")
-builder.add_edge("extract_constraints", "initialize_execution")
+
+# extract_constraints now goes to plan_review instead of straight to
+# initialize_execution — the whole proposed plan is reviewed once, up
+# front, before any stage runs.
+builder.add_edge("extract_constraints", "plan_review")
+builder.add_conditional_edges(
+    "plan_review",
+    route_after_plan_review,
+    {
+        "proceed": "initialize_execution",
+        "revise": "plan_review",   # loop back to review the just-updated plan
+        "cancelled": "plan_review_cancelled",
+    },
+)
+builder.add_edge("plan_review_cancelled", END)
+
 builder.add_edge("initialize_execution", "router")
 builder.add_conditional_edges(
     "router",
@@ -76,8 +95,8 @@ builder.add_conditional_edges(
         "hyperparameter_tuning": "hyperparameter_tuning",
         "evaluation": "evaluation",
         "reporting": "reporting",
-        "visualization_planner": "visualization_planner",      # NEW — for fan-out
-        "feature_engineering_planner": "feature_engineering_planner",  # NEW — for fan-out
+        "visualization_planner": "visualization_planner",
+        "feature_engineering_planner": "feature_engineering_planner",
         END: END,
     },
 )

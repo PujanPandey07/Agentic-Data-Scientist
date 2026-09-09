@@ -813,14 +813,23 @@ def route_intent(state):
 
 async def confirm_refinement_node(state):
     decision = interrupt({
-        "question": "Proceed with this refinement?",
+        "type": "refinement",
+        "summary": f"Refine '{state.get('refine_target')}': {state.get('refine_instruction')}",
         "stage": state.get("refine_target"),
         "instruction": state.get("refine_instruction"),
         "confidence": state.get("refine_confidence"),
     })
-    state["refine_confirmed"] = decision
 
-    if decision:
+    approved = decision.get("approved", False)
+    edit_instruction = decision.get("edit_instruction")
+
+    state["refine_confirmed"] = approved
+
+    if approved:
+        if edit_instruction:
+            # User tweaked the refinement instruction itself before proceeding.
+            state["refine_instruction"] = edit_instruction
+
         if state.get("dataframe") is None:
             print("DEBUG: dataframe missing before cascade — reloading from dataset_id")
             dataframe = dataset_service.load_dataset(state["dataset_id"])
@@ -831,22 +840,12 @@ async def confirm_refinement_node(state):
         target = state.get("refine_target")
         refine_instruction = state.get("refine_instruction", "")
 
-        # Re-extract constraints from the REFINEMENT instruction itself,
-        # not the original user_query. A refinement supersedes whatever
-        # constraint previously applied to the stages it touches — e.g.
-        # "use a linear SVM instead" must overwrite a stale "use lightgbm"
-        # constraint from the original run_pipeline call, not coexist
-        # alongside it.
         if refine_instruction:
             new_constraints = await constraints_extractor_agent.extract(refine_instruction)
             existing = dict(state.get("user_constraints") or {})
             for c in new_constraints.constraints:
-                existing[c.stage] = [c.instruction]  # overwrite, don't append
+                existing[c.stage] = [c.instruction]
             state["user_constraints"] = existing
-            logger.info(
-                f"Re-extracted constraints from refinement instruction, "
-                f"overwrote stages: {[c.stage for c in new_constraints.constraints]}"
-            )
 
         _clear_stale_fields(state, target)
 
@@ -884,4 +883,98 @@ async def extract_constraints_node(state):
         print("  (none found)")
     print("====================================\n")
 
+    return state
+
+
+def _build_plan_summary(plan, constraints: dict) -> str:
+    """Human-readable summary of the proposed plan, shown to the user at
+    plan_review time. Kept separate from the raw plan object so the
+    interrupt payload stays readable rather than dumping a Pydantic repr."""
+    if not plan:
+        return "No plan generated."
+
+    lines = [
+        f"Detected problem type: {plan.problem_type or 'unspecified'}",
+        f"Target column: {plan.target_column or 'not detected'}",
+        f"Planned stages: {' → '.join(plan.tasks)}",
+    ]
+    if constraints:
+        lines.append("Your explicit instructions:")
+        for stage, instrs in constraints.items():
+            for instr in instrs:
+                lines.append(f"  [{stage}] {instr}")
+    return "\n".join(lines)
+
+
+async def plan_review_node(state):
+    plan = state.get("analysis_plan")
+    constraints = state.get("user_constraints") or {}
+
+    # Capture the ORIGINAL query once, the first time this node runs —
+    # never overwritten again. Every later revision rebuilds from this,
+    # instead of stacking edits on top of edits.
+    if not state.get("base_user_query"):
+        state["base_user_query"] = state.get("user_query")
+
+    decision = interrupt({
+        "type": "plan_review",
+        "summary": _build_plan_summary(plan, constraints),
+        "tasks": plan.tasks if plan else [],
+        "target_column": state.get("target_column"),
+        "problem_type": plan.problem_type if plan else None,
+        "constraints": constraints,
+    })
+
+    approved = decision.get("approved", False)
+    edit_instruction = decision.get("edit_instruction")
+
+    if approved and not edit_instruction:
+        state["plan_confirmed"] = True
+        state["plan_review_cancelled"] = False
+        return state
+
+    if edit_instruction:
+        base = state.get("base_user_query") or state.get("user_query", "")
+
+        # Rebuilt fresh from base + only the LATEST edit each time — no
+        # stacking, and explicit about which instruction wins if they conflict.
+        combined_query = (
+            f"{base}\n\n"
+            f"IMPORTANT: the user has revised their request. This instruction "
+            f"OVERRIDES any conflicting part of the original request above: "
+            f"{edit_instruction}"
+        )
+        state["user_query"] = combined_query
+
+        new_plan = await planner_agent.plan(
+            combined_query, state.get("dataset_summary")
+        )
+        state["analysis_plan"] = new_plan
+        state["target_column"] = new_plan.target_column
+
+        new_constraints = await constraints_extractor_agent.extract(combined_query)
+        merged_constraints = dict(constraints)
+        for c in new_constraints.constraints:
+            merged_constraints[c.stage] = [c.instruction]
+        state["user_constraints"] = merged_constraints
+
+        state["plan_confirmed"] = False
+        state["plan_review_cancelled"] = False
+        return state
+
+    state["plan_confirmed"] = False
+    state["plan_review_cancelled"] = True
+    return state
+
+
+def route_after_plan_review(state):
+    if state.get("plan_review_cancelled"):
+        return "cancelled"
+    if state.get("plan_confirmed"):
+        return "proceed"
+    return "revise"
+
+
+async def plan_review_cancelled_node(state):
+    print("\nPlan rejected by user. No changes made.\n")
     return state

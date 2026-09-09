@@ -10,18 +10,65 @@ import aiosqlite
 setup_logging()
 
 
+def _prompt_for_decision(payload: dict) -> dict:
+    """Show an interrupt payload and collect a decision dict shaped as
+    {"approved": bool, "edit_instruction": str | None} — the shape both
+    plan_review_node and confirm_refinement_node now expect back."""
+    interrupt_type = payload.get("type", "unknown")
+
+    print(f"\n========== INTERRUPT: {interrupt_type} ==========")
+    print(payload.get("summary", ""))
+
+    if interrupt_type == "plan_review":
+        print(f"Tasks: {payload.get('tasks')}")
+        print(f"Target column: {payload.get('target_column')}")
+        print(f"Problem type: {payload.get('problem_type')}")
+        constraints = payload.get("constraints") or {}
+        if constraints:
+            print("Constraints:")
+            for stage, instrs in constraints.items():
+                for instr in instrs:
+                    print(f"  [{stage}] {instr}")
+
+    elif interrupt_type == "refinement":
+        print(f"Stage: {payload.get('stage')}")
+        print(f"Instruction: {payload.get('instruction')}")
+        print(f"Confidence: {payload.get('confidence')}")
+
+    print("===========================================")
+
+    choice = input("Approve? (y = yes / n = no / e = edit): ").strip().lower()
+
+    if choice == "y":
+        return {"approved": True, "edit_instruction": None}
+
+    if choice == "e":
+        edit_text = input("Enter your edit/instruction: ").strip()
+        # plan_review treats any edit as "not approved yet, re-plan with this"
+        # confirm_refinement treats an edit as "approved, but with this tweak"
+        approved = interrupt_type == "refinement"
+        return {"approved": approved, "edit_instruction": edit_text}
+
+    return {"approved": False, "edit_instruction": None}
+
+
 async def main():
     # ---------------------------------------------------------------
     # Pick which query to test by uncommenting one of these:
     # ---------------------------------------------------------------
-    # -> should trigger run_pipeline
-    # user_query = "Build a classification model on the Iris dataset"
-    # -> should trigger direct_answer
+    user_query = "Build a classification model on the Iris dataset using XGBoost"
     # user_query = "What does F1 score mean?"
-    # -> should trigger refine_step
-    user_query = "Can you explain the results of the analysis you just ran? What does the accuracy actually mean here, and would you trust this model in production?"
+    # user_query = "use XGBoost as the primary algorithm and tune hyperparameters"
+
     dataset_id = "08f054c7-0d54-4db4-95db-b84616f7bf25"
 
+    # -----------------------------------------------------------------
+    # True only on the very FIRST run for a given dataset_id/thread_id —
+    # sends a full initial_state that OVERWRITES the checkpoint.
+    # False for any follow-up call on an EXISTING thread (refinements,
+    # explain_result, general questions) — sends only user_query +
+    # dataset_id, leaving everything else as the checkpoint already has it.
+    # -----------------------------------------------------------------
     is_first_run = True
 
     if is_first_run:
@@ -59,27 +106,30 @@ async def main():
         )
         graph = builder.compile(checkpointer=checkpointer)
 
-        config = {"configurable": {"thread_id": 122455888888}}
+        config = {"configurable": {"thread_id": dataset_id}}
 
         result = await graph.ainvoke(graph_input, config=config)
 
-        if "__interrupt__" in result:
+        # Loop: keep resuming as long as the graph keeps pausing.
+        # plan_review_node can interrupt multiple times in a row (each
+        # "edit" loops back for another review of the revised plan), and
+        # confirm_refinement_node interrupts once for refine_step — this
+        # loop handles either, and any sequence of them, generically.
+        while "__interrupt__" in result:
             payload = result["__interrupt__"][0].value
+            decision = _prompt_for_decision(payload)
+            result = await graph.ainvoke(Command(resume=decision), config=config)
 
-            print("\n========== CONFIRMATION NEEDED ==========")
-            print(f"Stage: {payload['stage']}")
-            print(f"Instruction: {payload['instruction']}")
-            print(f"Confidence: {payload['confidence']}")
-            answer = input("Proceed? (y/n): ").strip().lower() == "y"
-            print("===========================================\n")
-
-            final_state = await graph.ainvoke(Command(resume=answer), config=config)
-        else:
-            final_state = result
+        final_state = result
 
     print("\n========== FINAL STATE ==========\n")
 
     print(f"INTENT: {final_state.get('intent')}")
+
+    if final_state.get("plan_review_cancelled"):
+        print("\nPlan was rejected — nothing executed.")
+        print("\n========== DONE ==========\n")
+        return
 
     if final_state.get("direct_answer"):
         print(f"\nDIRECT ANSWER:\n{final_state['direct_answer']}")
@@ -94,6 +144,8 @@ async def main():
         print("\n========== DONE ==========\n")
         return
 
+    # Otherwise — a full run_pipeline execution, or a CONFIRMED refine_step
+    # that cascaded through real stages. Print everything as before.
     print(f"COMPLETED TASKS: {final_state['completed_tasks']}")
     print(f"CURRENT TASK: {final_state['current_task']}")
     print(f"REMAINING TASKS: {final_state['remaining_tasks']}")
@@ -124,17 +176,18 @@ async def main():
     if final_state.get("feature_engineering_report"):
         report = final_state["feature_engineering_report"]
         if "error" in report:
-            print(f"\nFE RESULT: skipped/failed — {report['error']}")
+            print(f"\nFE ERROR: {report['error']}")
         else:
             print(
-                f"\nFE RESULT: {report['original_shape']} -> {report['final_shape']}")
+                f"\nFE RESULT: train {report.get('final_train_shape', 'N/A')}, "
+                f"test {report.get('final_test_shape', 'N/A')}")
             print(
-                f"FE STATUS: {report['steps_executed']} succeeded, {report['steps_failed']} failed")
+                f"FE STATUS: {report.get('steps_executed')} succeeded, {report.get('steps_failed')} failed")
 
     if final_state.get("training_report"):
         report = final_state["training_report"]
         if "error" in report:
-            print(f"\nTRAINING: skipped/failed — {report['error']}")
+            print(f"\nTRAINING ERROR: {report['error']}")
         else:
             print(f"\nTRAINING:")
             print(f"  Strategy: {report['strategy']}")
@@ -164,8 +217,6 @@ async def main():
             print(
                 f"  Top important param: {max(report.get('param_importance', {}), key=report.get('param_importance', {}).get) if report.get('param_importance') else 'N/A'}")
             print(f"  Tuned model: {report.get('tuned_model_path')}")
-        else:
-            print(f"  Reason: {report.get('reason', 'N/A')}")
 
     if final_state.get("trained_model_path"):
         print(f"\nMODEL SAVED: {final_state['trained_model_path']}")
@@ -173,7 +224,7 @@ async def main():
         if final_state.get("evaluation_report"):
             report = final_state["evaluation_report"]
             if "error" in report:
-                print(f"\nEVALUATION: skipped/failed — {report['error']}")
+                print(f"\nEVALUATION ERROR: {report['error']}")
             else:
                 print(f"\nEVALUATION:")
                 print(f"  Problem type: {report['problem_type']}")

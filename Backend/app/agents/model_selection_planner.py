@@ -3,6 +3,7 @@ from llm.provider import get_llm
 from schema.model_selection import ModelSelectionPlan
 from prompts.model_selection import MODEL_SELECTION_PLANNER_PROMPT
 from utilis.llm_plan import invoke_with_repair
+from utilis.constraints import format_constraints
 
 logger = logging.getLogger(__name__)
 
@@ -17,10 +18,10 @@ class ModelSelectionPlannerAgent:
         dataset_summary,
         eda_report: dict,
         feature_engineering_report: dict | None,
+        constraints: list[str] | None = None,
     ) -> ModelSelectionPlan:
         logger.info("Starting model selection planning")
 
-        # Build user content with all available evidence
         fe_section = ""
         if feature_engineering_report:
             fe_section = f"\nFeature Engineering Report: {feature_engineering_report}"
@@ -29,7 +30,7 @@ class ModelSelectionPlannerAgent:
 
 Dataset Summary: {dataset_summary}
 
-EDA Report: {eda_report}{fe_section}
+EDA Report: {eda_report}{fe_section}{format_constraints(constraints)}
 
 Generate the model selection plan now."""
 

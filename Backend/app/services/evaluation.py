@@ -1,3 +1,4 @@
+import warnings
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import learning_curve
 from sklearn.metrics import (
@@ -15,6 +16,7 @@ import matplotlib
 matplotlib.use("Agg")
 
 logger = logging.getLogger(__name__)
+warnings.filterwarnings("ignore", message="Scoring failed.*")
 
 
 class EvaluationService:
@@ -76,10 +78,31 @@ class EvaluationService:
     def _plot_learning_curve(self, model, X, y, problem_type):
         os.makedirs("outputs/evaluation", exist_ok=True)
         try:
+            n_samples = len(X)
             scoring = "accuracy" if problem_type == "classification" else "neg_mean_squared_error"
+
+            # On small held-out sets, low train_size fractions (e.g. 10%)
+            # can produce a training fold too small to contain every class
+            # — sklearn's learning_curve then raises "Invalid classes
+            # inferred" per-fold. Scale both cv and the minimum train
+            # fraction to the actual sample count instead of using fixed
+            # values that assumed a much larger dataset.
+            if problem_type == "classification":
+                min_class_count = int(pd.Series(y).value_counts().min())
+                cv = max(2, min(5, min_class_count))
+            else:
+                cv = min(5, max(2, n_samples // 5))
+
+            # Ensure the smallest train_size fraction still yields at least
+            # ~5 samples per class (classification) or 10 rows (regression).
+            num_classes = pd.Series(y).nunique(
+            ) if problem_type == "classification" else 1
+            min_needed = max(10, num_classes * 5)
+            min_fraction = min(0.9, max(0.3, min_needed / n_samples))
+
             train_sizes, train_scores, val_scores = learning_curve(
-                model, X, y, train_sizes=np.linspace(0.1, 1.0, 10),
-                cv=5, scoring=scoring, n_jobs=-1, random_state=42,
+                model, X, y, train_sizes=np.linspace(min_fraction, 1.0, 6),
+                cv=cv, scoring=scoring, n_jobs=-1, random_state=42,
             )
             train_mean, train_std = np.mean(
                 train_scores, axis=1), np.std(train_scores, axis=1)

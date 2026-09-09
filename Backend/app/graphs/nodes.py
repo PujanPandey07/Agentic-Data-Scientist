@@ -1,5 +1,10 @@
+import logging
+from sklearn.model_selection import train_test_split as sk_train_test_split
+
+from utilis.constraints import format_constraints, detect_forced_algorithm
+from schema.model_selection import ModelCandidate, ModelSelectionPlan
 from langgraph.types import interrupt
-from fastapi import logger
+from agents.constraint_extractor import constraints_extractor_agent
 
 from agents.refine_target import refine_target_agent
 from llm.provider import get_llm
@@ -22,6 +27,9 @@ from analysis.inspector import dataset_inspector
 from services.cleaning_service import CleaningService
 from services.executiopn_service import execution_service
 from agents.visualization_planner import visualization_planner_agent
+import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 CASCADE_MAP = {
     "cleaning": ["eda", "visualization", "feature_engineering", "model_selection", "hyperparameter_tuning", "evaluation", "reporting"],
@@ -51,6 +59,95 @@ def advance_execution(state, task_name: str, message: str, status: str = "succes
     )
 
     return state
+
+
+# State keys produced by each stage. Cleared when the stage (or anything
+# upstream that regenerates it) is about to rerun, so stale results never
+# leak across pipeline runs or refinements.
+STAGE_FIELDS = {
+    "cleaning": ["cleaning_report"],
+    "eda": ["eda_report"],
+    "visualization": ["visualization_plan", "visualization_results", "_viz_just_completed"],
+    "feature_engineering": ["feature_engineering_plan", "feature_engineering_report", "train_df", "test_df", "_fe_just_completed"],
+    "model_selection": ["model_selection_plan", "training_report", "trained_model_path"],
+    "hyperparameter_tuning": ["hyperparameter_tuning_report", "tuned_model_path"],
+    "evaluation": ["evaluation_report"],
+    "reporting": ["final_report"],
+}
+
+
+def _clear_stale_fields(state, from_stage: str):
+    """Remove all results produced by `from_stage` and every downstream stage.
+    Called before re-executing part of the pipeline so old artifacts from a
+    previous run (or a prior refine) don't leak forward.
+    """
+    stages_to_clear = [from_stage] + CASCADE_MAP.get(from_stage, [])
+    cleared = []
+    for stage in stages_to_clear:
+        for key in STAGE_FIELDS.get(stage, []):
+            if key in state and state.get(key) is not None:
+                state[key] = None
+                cleared.append(key)
+    if cleared:
+        logger.info(
+            f"Cleared stale fields for stages {stages_to_clear}: {cleared}")
+
+
+def _ensure_train_test_split(state, test_size: float = 0.2, random_state: int = 42):
+    """Stratified (classification) or plain (regression) 80/20 train/test
+    split, cached in state as train_df/test_df. TrainingService and
+    HyperparameterTuningService now only ever see train_df — test_df stays
+    untouched until evaluation_node scores the FINAL tuned model against it.
+
+    Cache invalidation: cleaning_node and feature_engineering_node clear
+    train_df/test_df whenever they change state["dataframe"], so this
+    regenerates automatically after any upstream data change. A refine_step
+    that only targets model_selection/hyperparameter_tuning reuses the
+    existing split untouched — correct, since the data didn't change.
+
+    Known limitation: feature_engineering_node still fits things like
+    scalers/correlation thresholds on the FULL dataframe before this split
+    happens, so scaling statistics technically see the test set's
+    distribution too. This fixes evaluation leakage (scoring on unseen
+    rows), not that subtler feature-engineering-level leakage — a bigger
+    restructuring, not addressed here.
+    """
+    if state.get("train_df") is not None and state.get("test_df") is not None:
+        return
+
+    df = state.get("dataframe")
+    target_column = state.get("target_column")
+    analysis_plan = state.get("analysis_plan")
+    problem_type = analysis_plan.problem_type if analysis_plan else "classification"
+
+    if df is None or target_column is None or target_column not in df.columns:
+        return  # let the caller's own missing-input guard handle it
+
+    stratify_col = None
+    if problem_type == "classification":
+        counts = df[target_column].value_counts()
+        if (counts >= 2).all():
+            stratify_col = df[target_column]
+
+    try:
+        train_df, test_df = sk_train_test_split(
+            df, test_size=test_size, random_state=random_state,
+            stratify=stratify_col,
+        )
+    except ValueError as e:
+        logger.warning(
+            f"Stratified split failed ({e}), falling back to unstratified split")
+        train_df, test_df = sk_train_test_split(
+            df, test_size=test_size, random_state=random_state,
+        )
+
+    state["train_df"] = train_df.reset_index(drop=True)
+    state["test_df"] = test_df.reset_index(drop=True)
+
+    logger.info(
+        f"Train/test split created: train={state['train_df'].shape}, "
+        f"test={state['test_df'].shape}"
+    )
 
 
 async def dataset_node(state):
@@ -87,14 +184,12 @@ async def planner_node(state):
 
 
 async def initialize_execution_node(state):
-
     plan = state.get("analysis_plan")
     tasks = plan.tasks if plan else []
 
     state["current_task"] = tasks[0] if tasks else None
     state["remaining_tasks"] = tasks[1:] if len(tasks) > 1 else []
     state["completed_tasks"] = []
-
     state["execution_logs"] = [
         {
             "node": "initialize_execution",
@@ -102,37 +197,83 @@ async def initialize_execution_node(state):
         }
     ]
 
+    # Fresh pipeline — clear any artifacts left from a previous run on this
+    # thread so stale results never leak forward.
+    _clear_stale_fields(state, "cleaning")
+
     return state
 
 
 async def router(state):
+    # Record completion from a just-finished viz/FE branch (fan-out or
+    # standalone) — done here, in one place, since router only ever
+    # runs one instance at a time (no concurrency risk for this update).
+    new_completed = []
+    new_logs = []
+
+    if state.get("_viz_just_completed"):
+        new_completed.append("visualization")
+        new_logs.append({"node": "visualization", "status": "success",
+                        "message": state["_viz_just_completed"]})
+        state["_viz_just_completed"] = None
+
+    if state.get("_fe_just_completed"):
+        new_completed.append("feature_engineering")
+        new_logs.append({"node": "feature_engineering",
+                        "status": "success", "message": state["_fe_just_completed"]})
+        state["_fe_just_completed"] = None
+
+    if new_completed:
+        state["completed_tasks"] = state.get(
+            "completed_tasks", []) + new_completed
+        state["execution_logs"] = state.get("execution_logs", []) + new_logs
+
+    current_task = state.get("current_task")
+    remaining = state.get("remaining_tasks", [])
+
+    both_pending = (
+        (current_task == "visualization" and "feature_engineering" in remaining) or
+        (current_task == "feature_engineering" and "visualization" in remaining)
+    )
+
+    if both_pending:
+        new_remaining = [t for t in remaining if t not in (
+            "visualization", "feature_engineering")]
+        state["current_task"] = new_remaining[0] if new_remaining else None
+        state["remaining_tasks"] = new_remaining[1:] if len(
+            new_remaining) > 1 else []
+        state["fan_out_viz_fe"] = True
+    elif current_task in ("visualization", "feature_engineering"):
+        # standalone (non-fanout) case — advance past just this one, as before
+        state["current_task"] = remaining[0] if remaining else None
+        state["remaining_tasks"] = remaining[1:] if len(remaining) > 1 else []
+        state["fan_out_viz_fe"] = False
+    else:
+        state["fan_out_viz_fe"] = False
+
     return state
 
 
 def route_task(state):
+    if state.get("fan_out_viz_fe"):
+        return ["visualization_planner", "feature_engineering_planner"]
 
     task = state.get("current_task")
 
     if task == "cleaning":
         return "cleaning"
-
     if task == "eda":
         return "eda"
-
     if task == "feature_engineering":
         return "feature_engineering"
-
     if task == "model_selection":
         return "model_selection"
-
     if task == "visualization":
         return "visualization"
     if task == "hyperparameter_tuning":
         return "hyperparameter_tuning"
-
     if task == "evaluation":
         return "evaluation"
-
     if task == "reporting":
         return "reporting"
 
@@ -152,6 +293,9 @@ async def cleaning_node(state):
 
     state["dataframe"] = cleaned_dataframe
     state["cleaning_report"] = report
+    # Data changed — any cached train/test split is now stale.
+    state["train_df"] = None
+    state["test_df"] = None
 
     print("REPORT IN STATE:", state.get("cleaning_report"))
 
@@ -177,6 +321,19 @@ async def eda_node(state):
     )
 
 
+# ---------------------------------------------------------------------------
+# NOTE: visualization_planner_node and feature_engineering_planner_node are
+# each defined ONCE here — these are the versions that must run for the
+# fan-out to work. They return partial-update dicts (only the key they
+# actually set), NOT the whole state, because when both run concurrently in
+# the same step, returning the full state causes both branches to "write"
+# to every key (including untouched ones like user_query), which LangGraph
+# rejects with InvalidUpdateError. A second, older copy of each of these
+# functions previously existed further down in this file — Python silently
+# used whichever definition came last, which is why the fix appeared not to
+# take effect. Do not add a second definition of either function again.
+# ---------------------------------------------------------------------------
+
 async def visualization_planner_node(state):
 
     user_query = state.get("user_query")
@@ -195,42 +352,119 @@ async def visualization_planner_node(state):
     visualization_plan = await visualization_planner_agent.plan_visualizations(
         user_query=user_query,
         dataset_summary=dataset_summary,
-        eda_report=eda_report
+        eda_report=eda_report,
+        constraints=(state.get("user_constraints")
+                     or {}).get("visualization", []),
     )
 
-    state["visualization_plan"] = visualization_plan
+    # Partial-update return — NOT the whole state. Two nodes running
+    # concurrently must each touch only their own key, or LangGraph
+    # can't merge them (InvalidUpdateError).
+    return {"visualization_plan": visualization_plan}
 
+
+async def model_selection_planner_node(state):
+    """LLM reasoning: decides WHICH models to try.
+
+    If a forced algorithm is detected in user constraints, skip the LLM
+    call entirely and build a deterministic plan with sensible defaults.
+    """
+    constraints = (state.get("user_constraints")
+                   or {}).get("model_selection", [])
+
+    # ------------------------------------------------------------------
+    # FAST PATH: user explicitly named an algorithm — skip the LLM entirely
+    # ------------------------------------------------------------------
+    forced = detect_forced_algorithm(constraints)
+    if forced:
+        analysis_plan = state.get("analysis_plan")
+        problem_type = analysis_plan.problem_type if analysis_plan else "classification"
+
+        scoring_metric = "accuracy" if problem_type == "classification" else "neg_mean_squared_error"
+
+        plan = ModelSelectionPlan(
+            strategy="standard",
+            sample_size=None,
+            candidates=[
+                ModelCandidate(
+                    algorithm=forced,
+                    reason=f"User explicitly requested '{forced}' via constraint.",
+                    estimated_time_seconds=30,
+                    hyperparams={},
+                    priority=1,
+                )
+            ],
+            cv_folds=5,
+            scoring_metric=scoring_metric,
+            time_budget_minutes=5,
+            notes=[
+                f"Algorithm forced by user constraint: '{forced}'. "
+                "LLM planner skipped to save tokens and avoid rate limits."
+            ],
+            forced_algorithm=forced,
+        )
+
+        logger.info(
+            f"Forced algorithm '{forced}' detected — skipping model-selection LLM call"
+        )
+        state["model_selection_plan"] = plan
+        return state
+
+    # ------------------------------------------------------------------
+    # NORMAL PATH: no forced algorithm — ask the LLM to choose candidates
+    # ------------------------------------------------------------------
+    agent = ModelSelectionPlannerAgent()
+    plan = await agent.plan(
+        user_query=state.get("user_query", ""),
+        dataset_summary=state.get("dataset_summary"),
+        eda_report=state.get("eda_report", {}),
+        feature_engineering_report=state.get("feature_engineering_report"),
+        constraints=constraints,
+    )
+
+    # Safety net: if the LLM somehow missed the constraint, enforce it here
+    forced = detect_forced_algorithm(constraints)
+    if forced:
+        existing = next(
+            (c for c in plan.candidates if c.algorithm == forced), None)
+        plan.forced_algorithm = forced
+        plan.candidates = [
+            existing if existing else ModelCandidate(
+                algorithm=forced,
+                reason="User explicitly requested this algorithm.",
+                estimated_time_seconds=30,
+                hyperparams={},
+                priority=1,
+            )
+        ]
+        logger.info(
+            f"Forced algorithm '{forced}' detected post-LLM — overriding candidates"
+        )
+
+    state["model_selection_plan"] = plan
     return state
 
 
 async def visualization_node(state):
-
     dataframe = state.get("dataframe")
-
     if dataframe is None:
-        raise ValueError(
-            "Dataframe not found in graph state."
-        )
+        raise ValueError("Dataframe not found in graph state.")
 
     visualization_plan = state.get("visualization_plan")
-
     if visualization_plan is None:
-        raise ValueError(
-            "Visualization plan not found in graph state."
-        )
+        raise ValueError("Visualization plan not found in graph state.")
 
     visualizations = visualization_service.generate_visualizations(
         dataframe=dataframe,
         visualization_plan=visualization_plan,
     )
 
-    state["visualizations"] = visualizations
+    print("Running visualization node...")
 
-    return advance_execution(
-        state,
-        "visualization",
-        "Visualizations generated successfully."
-    )
+    return {
+        "visualization_results": visualizations,
+        "_viz_just_completed": "Visualizations generated successfully.",
+    }
 
 
 async def feature_engineering_planner_node(state):
@@ -241,58 +475,87 @@ async def feature_engineering_planner_node(state):
         user_query=state.get("user_query", ""),
         dataset_summary=state.get("dataset_summary"),
         eda_report=state.get("eda_report", {}),
+        target_column=state.get("target_column"),
+        constraints=(state.get("user_constraints") or {}
+                     ).get("feature_engineering", []),
     )
 
-    state["feature_engineering_plan"] = plan
-    return state
+    return {"feature_engineering_plan": plan}
 
 
 async def feature_engineering_node(state):
-    """Deterministic execution: applies the plan to the dataframe."""
     df = state.get("dataframe")
     plan = state.get("feature_engineering_plan")
+    target_column = state.get("target_column")
+
+    print("Running feature_engineering node...")
 
     if df is None or plan is None:
-        state["feature_engineering_report"] = {
-            "error": "Missing dataframe or feature engineering plan"
+        return {
+            "feature_engineering_report": {
+                "error": "Missing dataframe or feature engineering plan"
+            },
         }
-        return advance_execution(
-            state, "feature_engineering", "Skipped: missing required inputs",
-            status="skipped",
-        )
+
+    # IMPORTANT:
+    # Split BEFORE feature engineering so that transformations
+    # such as scaling, encoding, variance selection, correlation
+    # selection, binning, and polynomial features learn only from train.
+    split_state = dict(state)
+
+    _ensure_train_test_split(split_state)
+
+    train_df = split_state.get("train_df")
+    test_df = split_state.get("test_df")
+
+    if train_df is None or test_df is None:
+        return {
+            "feature_engineering_report": {
+                "error": "Failed to create train/test split before feature engineering"
+            },
+        }
 
     service = FeatureEngineeringService()
-    transformed_df, report = service.apply_plan(df, plan)
 
-    state["dataframe"] = transformed_df
-    state["feature_engineering_report"] = report
+    train_transformed, test_transformed, report = (
+        service.apply_plan_train_test(
+            train_df,
+            test_df,
+            plan,
+            target_column=target_column,
+        )
+    )
+
+    # Keep a combined dataframe for downstream state/report compatibility.
+    transformed_df = pd.concat(
+        [train_transformed, test_transformed],
+        ignore_index=True,
+    )
 
     msg = (
         f"Feature engineering complete. "
-        f"Shape: {df.shape} -> {transformed_df.shape}. "
+        f"Train: {train_df.shape} -> {train_transformed.shape}, "
+        f"Test: {test_df.shape} -> {test_transformed.shape}. "
         f"Steps: {report['steps_executed']}/{len(plan.steps)} succeeded."
     )
-    return advance_execution(state, "feature_engineering", msg)
 
-
-async def model_selection_planner_node(state):
-    """LLM reasoning: decides WHICH models to try."""
-    agent = ModelSelectionPlannerAgent()
-
-    plan = await agent.plan(
-        user_query=state.get("user_query", ""),
-        dataset_summary=state.get("dataset_summary"),
-        eda_report=state.get("eda_report", {}),
-        feature_engineering_report=state.get("feature_engineering_report"),
-    )
-
-    state["model_selection_plan"] = plan
-    return state
+    return {
+        "dataframe": transformed_df,
+        "train_df": train_transformed,
+        "test_df": test_transformed,
+        "feature_engineering_report": report,
+        "_fe_just_completed": msg,
+    }
 
 
 async def training_node(state):
-    """Deterministic execution: trains models, picks best, saves to disk."""
-    df = state.get("dataframe")
+    """Deterministic execution: trains models, picks best, saves to disk.
+
+    Trains only on train_df (never test_df) — see _ensure_train_test_split.
+    """
+    _ensure_train_test_split(state)
+
+    df = state.get("train_df")
     plan = state.get("model_selection_plan")
     target_column = state.get("target_column")
     dataset_id = state.get("dataset_id")
@@ -334,15 +597,18 @@ async def training_node(state):
 
 
 async def evaluation_node(state):
-    """Deterministic evaluation: loads model, computes metrics, generates artifacts."""
-    df = state.get("dataframe")
+    """Deterministic evaluation: loads the TUNED model (falling back to the
+    untuned trained model if tuning was skipped/failed), scores it against
+    the held-out TEST split only — never training data."""
+    df = state.get("test_df")
     target_column = state.get("target_column")
-    model_path = state.get("trained_model_path")
+    model_path = state.get("tuned_model_path") or state.get(
+        "trained_model_path")
     analysis_plan = state.get("analysis_plan")
 
     if df is None or target_column is None or model_path is None:
         state["evaluation_report"] = {
-            "error": "Missing dataframe, target column, or trained model path"
+            "error": "Missing test dataframe, target column, or trained model path"
         }
         return advance_execution(
             state, "evaluation", "Skipped: missing required inputs",
@@ -402,7 +668,10 @@ async def reporting_node(state):
 
 
 async def hyperparameter_tuning_node(state):
-    df = state.get("dataframe")
+    """Tunes only on train_df (never test_df) — see _ensure_train_test_split."""
+    _ensure_train_test_split(state)
+
+    df = state.get("train_df")
     plan = state.get("model_selection_plan")
     training_report = state.get("training_report")
     target_column = state.get("target_column")
@@ -544,18 +813,23 @@ def route_intent(state):
 
 async def confirm_refinement_node(state):
     decision = interrupt({
-        "question": "Proceed with this refinement?",
+        "type": "refinement",
+        "summary": f"Refine '{state.get('refine_target')}': {state.get('refine_instruction')}",
         "stage": state.get("refine_target"),
         "instruction": state.get("refine_instruction"),
         "confidence": state.get("refine_confidence"),
     })
-    state["refine_confirmed"] = decision
 
-    if decision:
-        # refine_step never routes through dataset_node, so a thread that's
-        # only ever been driven via refine_step has no dataframe in its
-        # checkpoint yet. Reload it here rather than silently cascading
-        # through every node's "missing input" skip branch.
+    approved = decision.get("approved", False)
+    edit_instruction = decision.get("edit_instruction")
+
+    state["refine_confirmed"] = approved
+
+    if approved:
+        if edit_instruction:
+            # User tweaked the refinement instruction itself before proceeding.
+            state["refine_instruction"] = edit_instruction
+
         if state.get("dataframe") is None:
             print("DEBUG: dataframe missing before cascade — reloading from dataset_id")
             dataframe = dataset_service.load_dataset(state["dataset_id"])
@@ -564,6 +838,17 @@ async def confirm_refinement_node(state):
                 state["dataset_summary"] = dataset_inspector.inspect(dataframe)
 
         target = state.get("refine_target")
+        refine_instruction = state.get("refine_instruction", "")
+
+        if refine_instruction:
+            new_constraints = await constraints_extractor_agent.extract(refine_instruction)
+            existing = dict(state.get("user_constraints") or {})
+            for c in new_constraints.constraints:
+                existing[c.stage] = [c.instruction]
+            state["user_constraints"] = existing
+
+        _clear_stale_fields(state, target)
+
         state["current_task"] = target
         state["remaining_tasks"] = CASCADE_MAP.get(target, [])
         state["completed_tasks"] = state.get("completed_tasks") or []
@@ -577,4 +862,119 @@ def route_after_confirmation(state):
 
 async def refinement_cancelled_node(state):
     print("\nRefinement cancelled by user. No changes made.\n")
+    return state
+
+
+async def extract_constraints_node(state):
+    result = await constraints_extractor_agent.extract(state.get("user_query", ""))
+
+    constraints_by_stage: dict[str, list[str]] = {}
+    for c in result.constraints:
+        constraints_by_stage.setdefault(c.stage, []).append(c.instruction)
+
+    state["user_constraints"] = constraints_by_stage
+
+    print("\n========== USER CONSTRAINTS (Step 1 — not yet injected) ==========")
+    if constraints_by_stage:
+        for stage, instructions in constraints_by_stage.items():
+            for instr in instructions:
+                print(f"  [{stage}] {instr}")
+    else:
+        print("  (none found)")
+    print("====================================\n")
+
+    return state
+
+
+def _build_plan_summary(plan, constraints: dict) -> str:
+    """Human-readable summary of the proposed plan, shown to the user at
+    plan_review time. Kept separate from the raw plan object so the
+    interrupt payload stays readable rather than dumping a Pydantic repr."""
+    if not plan:
+        return "No plan generated."
+
+    lines = [
+        f"Detected problem type: {plan.problem_type or 'unspecified'}",
+        f"Target column: {plan.target_column or 'not detected'}",
+        f"Planned stages: {' → '.join(plan.tasks)}",
+    ]
+    if constraints:
+        lines.append("Your explicit instructions:")
+        for stage, instrs in constraints.items():
+            for instr in instrs:
+                lines.append(f"  [{stage}] {instr}")
+    return "\n".join(lines)
+
+
+async def plan_review_node(state):
+    plan = state.get("analysis_plan")
+    constraints = state.get("user_constraints") or {}
+
+    # Capture the ORIGINAL query once, the first time this node runs —
+    # never overwritten again. Every later revision rebuilds from this,
+    # instead of stacking edits on top of edits.
+    if not state.get("base_user_query"):
+        state["base_user_query"] = state.get("user_query")
+
+    decision = interrupt({
+        "type": "plan_review",
+        "summary": _build_plan_summary(plan, constraints),
+        "tasks": plan.tasks if plan else [],
+        "target_column": state.get("target_column"),
+        "problem_type": plan.problem_type if plan else None,
+        "constraints": constraints,
+    })
+
+    approved = decision.get("approved", False)
+    edit_instruction = decision.get("edit_instruction")
+
+    if approved and not edit_instruction:
+        state["plan_confirmed"] = True
+        state["plan_review_cancelled"] = False
+        return state
+
+    if edit_instruction:
+        base = state.get("base_user_query") or state.get("user_query", "")
+
+        # Rebuilt fresh from base + only the LATEST edit each time — no
+        # stacking, and explicit about which instruction wins if they conflict.
+        combined_query = (
+            f"{base}\n\n"
+            f"IMPORTANT: the user has revised their request. This instruction "
+            f"OVERRIDES any conflicting part of the original request above: "
+            f"{edit_instruction}"
+        )
+        state["user_query"] = combined_query
+
+        new_plan = await planner_agent.plan(
+            combined_query, state.get("dataset_summary")
+        )
+        state["analysis_plan"] = new_plan
+        state["target_column"] = new_plan.target_column
+
+        new_constraints = await constraints_extractor_agent.extract(combined_query)
+        merged_constraints = dict(constraints)
+        for c in new_constraints.constraints:
+            merged_constraints[c.stage] = [c.instruction]
+        state["user_constraints"] = merged_constraints
+
+        state["plan_confirmed"] = False
+        state["plan_review_cancelled"] = False
+        return state
+
+    state["plan_confirmed"] = False
+    state["plan_review_cancelled"] = True
+    return state
+
+
+def route_after_plan_review(state):
+    if state.get("plan_review_cancelled"):
+        return "cancelled"
+    if state.get("plan_confirmed"):
+        return "proceed"
+    return "revise"
+
+
+async def plan_review_cancelled_node(state):
+    print("\nPlan rejected by user. No changes made.\n")
     return state

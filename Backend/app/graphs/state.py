@@ -22,6 +22,10 @@ class GraphState(TypedDict):
     refine_confidence: float | None
     no_prior_analysis: bool | None
     refine_confirmed: bool | None
+    fan_out_viz_fe: bool | None
+    _viz_just_completed: str | None
+    _fe_just_completed: str | None
+    user_constraints: dict[str, list[str]] | None
 
     # Dataset
     dataframe: pd.DataFrame | None
@@ -43,6 +47,8 @@ class GraphState(TypedDict):
     # Feature Engineering
     feature_engineering_plan: FeatureEngineeringPlan | None
     feature_engineering_report: dict | None
+    train_df: pd.DataFrame | None
+    test_df: pd.DataFrame | None
 
     # Training
     model_selection_plan: ModelSelectionPlan | None

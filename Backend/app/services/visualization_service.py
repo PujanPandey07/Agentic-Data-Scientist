@@ -33,53 +33,55 @@ class VisualizationService:
         )
 
         results = []
+        failures = []
 
         for plan in visualization_plan.visualizations:
 
             chart_type = plan.chart_type.value
 
-            if chart_type == "scatter":
-                result = self.generate_scatter_plot(
-                    dataframe,
-                    plan,
-                )
+            try:
+                if chart_type == "scatter":
+                    result = self.generate_scatter_plot(dataframe, plan)
+                elif chart_type == "bar":
+                    result = self.generate_bar_chart(dataframe, plan)
+                elif chart_type == "histogram":
+                    result = self.generate_histogram(dataframe, plan)
+                elif chart_type == "box":
+                    result = self.generate_box_plot(dataframe, plan)
+                elif chart_type == "heatmap":
+                    result = self.generate_heatmap(dataframe, plan)
+                else:
+                    raise ValueError(f"Unsupported chart type: {chart_type}")
 
-            elif chart_type == "bar":
-                result = self.generate_bar_chart(
-                    dataframe,
-                    plan,
+            except Exception as e:
+                # Fault isolation: one bad chart shouldn't take down the
+                # other N-1 that were perfectly valid. Same pattern as
+                # FeatureEngineeringService.apply_plan.
+                logger.warning(
+                    f"Chart '{chart_type}' (x={plan.x_column}, "
+                    f"y={plan.y_column}) failed, skipped: {e}"
                 )
-
-            elif chart_type == "histogram":
-                result = self.generate_histogram(
-                    dataframe,
-                    plan,
-                )
-
-            elif chart_type == "box":
-                result = self.generate_box_plot(
-                    dataframe,
-                    plan,
-                )
-
-            elif chart_type == "heatmap":
-                result = self.generate_heatmap(
-                    dataframe,
-                    plan,
-                )
-
-            else:
-                logger.error(f"Unsupported chart type requested: {chart_type}")
-                raise ValueError(
-                    f"Unsupported chart type: {chart_type}"
-                )
+                failures.append({
+                    "chart_type": chart_type,
+                    "x_column": plan.x_column,
+                    "y_column": plan.y_column,
+                    "error": str(e),
+                })
+                continue
 
             logger.info(f"Generated {chart_type} chart -> {result['path']}")
-
             results.append(result)
 
+        if failures:
+            logger.warning(
+                f"Visualization generation done with {len(failures)} "
+                f"failure(s): {[f['chart_type'] for f in failures]}"
+            )
+
         logger.info(
-            f"Visualization generation done: {len(results)} charts created")
+            f"Visualization generation done: {len(results)} succeeded, "
+            f"{len(failures)} failed"
+        )
 
         return results
 

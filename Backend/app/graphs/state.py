@@ -13,6 +13,7 @@ class GraphState(TypedDict):
     # User Input
     user_query: str
     dataset_id: str
+    conversation_id: str | None
     target_column: str | None
     intent: str | None
     direct_answer: str | None

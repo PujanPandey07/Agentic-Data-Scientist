@@ -84,14 +84,15 @@ class CleaningService:
 
         dataframe = dataframe.copy()
 
-        dataframe.columns = (
-            dataframe.columns
-            .str.strip()
-            .str.lower()
-            .str.replace(" ", "_")
-        )
+        dataframe.columns = [
+            self.standardize_column_name(column)
+            for column in dataframe.columns
+        ]
 
         return dataframe
+
+    def standardize_column_name(self, column: str) -> str:
+        return column.strip().lower().replace(" ", "_")
 
 
 cleaning_service = CleaningService()

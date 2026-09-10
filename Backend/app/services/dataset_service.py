@@ -1,5 +1,5 @@
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 import logging
 
 from fastapi import HTTPException, UploadFile
@@ -54,19 +54,27 @@ class DatasetService:
         )
 
     def get_dataset_path(self, dataset_id: str) -> Path:
-
-        matches = list(self.upload_dir.glob(f"{dataset_id}.*"))
-
-        if not matches:
+        try:
+            canonical_id = str(UUID(dataset_id))
+        except (AttributeError, ValueError):
             logger.error(f"Dataset not found: {dataset_id}")
             raise HTTPException(
                 status_code=404,
                 detail="Dataset not found."
             )
 
-        logger.info(f"Resolved dataset {dataset_id} -> {matches[0].name}")
+        for extension in self.ALLOWED_EXTENSIONS:
+            file_path = self.upload_dir / f"{canonical_id}{extension}"
+            if file_path.is_file():
+                logger.info(
+                    f"Resolved dataset {dataset_id} -> {file_path.name}")
+                return file_path
 
-        return matches[0]
+        logger.error(f"Dataset not found: {dataset_id}")
+        raise HTTPException(
+            status_code=404,
+            detail="Dataset not found."
+        )
 
     def load_dataset(self, dataset_id: str) -> pd.DataFrame:
 

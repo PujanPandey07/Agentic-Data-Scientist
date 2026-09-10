@@ -11,6 +11,12 @@ from llm.provider import get_llm
 from agents.intent_router import intent_router_agent
 from services.hyper_parameters_tuning import HyperparameterTuningService
 from services.reporting import ReportingService
+from services.analysis_context import analysis_context_builder
+from cache.analysis_cache import analysis_context_cache
+from cache.dataset_cache import dataset_summary_cache
+from services.short_term_memory import short_term_memory_manager
+from services.long_term_memory import long_term_memory_manager
+from services.context_assembler import llm_context_assembler
 from services.evaluation import EvaluationService
 from services.trainning import TrainingService
 from agents.model_selection_planner import ModelSelectionPlannerAgent
@@ -151,14 +157,12 @@ def _ensure_train_test_split(state, test_size: float = 0.2, random_state: int = 
 
 
 async def dataset_node(state):
-
-    dataframe = dataset_service.load_dataset(
-        state["dataset_id"]
-    )
-
-    summary = dataset_inspector.inspect(
-        dataframe
-    )
+    dataset_id = state["dataset_id"]
+    dataframe = dataset_service.load_dataset(dataset_id)
+    summary = dataset_summary_cache.get(dataset_id)
+    if summary is None:
+        summary = dataset_inspector.inspect(dataframe)
+        dataset_summary_cache.set(dataset_id, summary)
 
     state["dataframe"] = dataframe
     state["dataset_summary"] = summary
@@ -283,6 +287,7 @@ def route_task(state):
 async def cleaning_node(state):
 
     dataframe = state.get("dataframe")
+    target_column = state.get("target_column")
 
     if dataframe is None:
         raise ValueError("Dataframe not found in graph state.")
@@ -292,6 +297,10 @@ async def cleaning_node(state):
     )
 
     state["dataframe"] = cleaned_dataframe
+    if target_column is not None:
+        state["target_column"] = cleaning_service.standardize_column_name(
+            target_column
+        )
     state["cleaning_report"] = report
     # Data changed — any cached train/test split is now stale.
     state["train_df"] = None
@@ -657,6 +666,17 @@ async def reporting_node(state):
     report = service.generate_report(state)
 
     state["final_report"] = report
+    analysis_context = analysis_context_builder.build(state, report)
+    analysis_context_cache.set(report["dataset_id"], analysis_context)
+    conversation_id = state.get("conversation_id") or report.get("dataset_id")
+    recommendation = (report.get("conclusions") or {}).get("recommendation")
+    if conversation_id and recommendation and recommendation != "N/A":
+        long_term_memory_manager.upsert(
+            conversation_id,
+            "latest_analysis_conclusion",
+            recommendation,
+            importance=0.75,
+        )
 
     msg = (
         f"Reporting complete. "
@@ -739,10 +759,30 @@ async def hyperparameter_tuning_node(state):
 
 
 async def intent_router_node(state):
-    has_prior_report = state.get("final_report") is not None
+    dataset_id = state.get("dataset_id")
+    conversation_id = state.get("conversation_id") or dataset_id
+    user_query = state.get("user_query", "")
+    if conversation_id and user_query:
+        short_term_memory_manager.add_message(
+            conversation_id, "user", user_query
+        )
+        short_term_memory_manager.update_facts(
+            conversation_id, current_goal=user_query
+        )
+        long_term_memory_manager.extract_and_store(
+            conversation_id, user_query
+        )
+
+    has_prior_report = (
+        state.get("final_report") is not None
+        or (
+            dataset_id is not None
+            and analysis_context_cache.get(dataset_id) is not None
+        )
+    )
 
     classification = await intent_router_agent.classify(
-        user_query=state.get("user_query", ""),
+        user_query=user_query,
         has_prior_report=has_prior_report,
     )
 
@@ -761,6 +801,7 @@ async def intent_router_node(state):
 
 async def direct_answer_node(state):
     llm = get_llm()
+    conversation_id = state.get("conversation_id") or state.get("dataset_id")
 
     if state.get("no_prior_analysis"):
         context = (
@@ -768,10 +809,23 @@ async def direct_answer_node(state):
             "but none exists yet in this session. Gently let them know they "
             "need to run an analysis first before you can explain or refine anything."
         )
-    elif state.get("final_report"):
-        context = f"\nPrevious analysis report: {state['final_report']}"
     else:
-        context = ""
+        if state.get("final_report"):
+            context = f"\nPrevious analysis report: {state['final_report']}"
+        else:
+            context = ""
+
+    if conversation_id:
+        assembled_context = llm_context_assembler.assemble(
+            conversation_id,
+            state.get("user_query", ""),
+            state.get("dataset_id"),
+        )
+        context += (
+            "\nRelevant assembled context (use only what helps answer the "
+            "question):\n"
+            f"{assembled_context}"
+        )
 
     messages = [
         {"role": "system", "content": "Answer the user's question directly and concisely."},
@@ -780,6 +834,10 @@ async def direct_answer_node(state):
 
     response = await llm.ainvoke(messages)
     state["direct_answer"] = response.content
+    if conversation_id:
+        short_term_memory_manager.add_message(
+            conversation_id, "assistant", response.content
+        )
     print(
         f"\n========== DIRECT ANSWER ==========\n{response.content}\n====================================\n")
     return state
@@ -835,7 +893,12 @@ async def confirm_refinement_node(state):
             dataframe = dataset_service.load_dataset(state["dataset_id"])
             state["dataframe"] = dataframe
             if state.get("dataset_summary") is None:
-                state["dataset_summary"] = dataset_inspector.inspect(dataframe)
+                state["dataset_summary"] = dataset_summary_cache.get(
+                    state["dataset_id"]
+                ) or dataset_inspector.inspect(dataframe)
+                dataset_summary_cache.set(
+                    state["dataset_id"], state["dataset_summary"]
+                )
 
         target = state.get("refine_target")
         refine_instruction = state.get("refine_instruction", "")

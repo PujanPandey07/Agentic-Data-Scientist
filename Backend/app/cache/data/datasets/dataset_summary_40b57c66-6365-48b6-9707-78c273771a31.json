@@ -1,0 +1,39 @@
+{
+  "rows": 200,
+  "columns": 5,
+  "column_names": [
+    "CustomerID",
+    "Gender",
+    "Age",
+    "Annual Income (k$)",
+    "Spending Score (1-100)"
+  ],
+  "data_types": {
+    "CustomerID": "int64",
+    "Gender": "str",
+    "Age": "int64",
+    "Annual Income (k$)": "int64",
+    "Spending Score (1-100)": "int64"
+  },
+  "numerical_columns": [
+    "CustomerID",
+    "Age",
+    "Annual Income (k$)",
+    "Spending Score (1-100)"
+  ],
+  "categorical_columns": [
+    "Gender"
+  ],
+  "missing_values": {
+    "CustomerID": 0,
+    "Gender": 0,
+    "Age": 0,
+    "Annual Income (k$)": 0,
+    "Spending Score (1-100)": 0
+  },
+  "duplicate_rows": 0,
+  "memory_usage": "16.95 KB",
+  "has_missing_values": false,
+  "has_duplicates": false,
+  "potential_target_columns": []
+}

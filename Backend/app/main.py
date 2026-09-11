@@ -11,6 +11,8 @@ from core.db import engine, async_session, Base
 from api.health import router as health_router
 from api.upload import router as upload_router
 from api.analysis import router as analysis_router
+from api.chat import router as chat_router
+from api.runs import router as runs_router
 
 
 @asynccontextmanager
@@ -43,3 +45,5 @@ app = FastAPI(
 app.include_router(health_router)
 app.include_router(upload_router)
 app.include_router(analysis_router)
+app.include_router(chat_router)
+app.include_router(runs_router)

@@ -769,7 +769,7 @@ async def intent_router_node(state):
         short_term_memory_manager.update_facts(
             conversation_id, current_goal=user_query
         )
-        long_term_memory_manager.extract_and_store(
+        await long_term_memory_manager.extract_and_store(
             conversation_id, user_query
         )
 

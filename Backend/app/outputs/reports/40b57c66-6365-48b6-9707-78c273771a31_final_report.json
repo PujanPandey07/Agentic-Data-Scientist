@@ -1,0 +1,154 @@
+{
+  "generated_at": "2026-09-11T18:02:23.737161Z",
+  "user_query": "as a data scientist give a detailed report on this dataset",
+  "dataset_id": "40b57c66-6365-48b6-9707-78c273771a31",
+  "target_column": "N/A",
+  "problem_type": "unknown",
+  "pipeline_status": {
+    "completed_tasks": [
+      "cleaning",
+      "eda"
+    ],
+    "total_tasks": 2
+  },
+  "dataset_overview": {
+    "final_shape": [
+      200,
+      5
+    ],
+    "columns": [
+      "customerid",
+      "gender",
+      "age",
+      "annual_income_(k$)",
+      "spending_score_(1-100)"
+    ]
+  },
+  "cleaning": {
+    "original_rows": 200,
+    "final_rows": 200,
+    "duplicates_removed": 0,
+    "missing_values_remaining": 0
+  },
+  "eda": {
+    "shape": {
+      "rows": 200,
+      "columns": 5
+    },
+    "column_names": [
+      "customerid",
+      "gender",
+      "age",
+      "annual_income_(k$)",
+      "spending_score_(1-100)"
+    ],
+    "numerical_columns": [
+      "customerid",
+      "age",
+      "annual_income_(k$)",
+      "spending_score_(1-100)"
+    ],
+    "categorical_columns": [
+      "gender"
+    ],
+    "numerical_summary": {
+      "customerid": {
+        "count": 200.0,
+        "mean": 100.5,
+        "std": 57.8792,
+        "min": 1.0,
+        "25%": 50.75,
+        "50%": 100.5,
+        "75%": 150.25,
+        "max": 200.0
+      },
+      "age": {
+        "count": 200.0,
+        "mean": 38.85,
+        "std": 13.969,
+        "min": 18.0,
+        "25%": 28.75,
+        "50%": 36.0,
+        "75%": 49.0,
+        "max": 70.0
+      },
+      "annual_income_(k$)": {
+        "count": 200.0,
+        "mean": 60.56,
+        "std": 26.2647,
+        "min": 15.0,
+        "25%": 41.5,
+        "50%": 61.5,
+        "75%": 78.0,
+        "max": 137.0
+      },
+      "spending_score_(1-100)": {
+        "count": 200.0,
+        "mean": 50.2,
+        "std": 25.8235,
+        "min": 1.0,
+        "25%": 34.75,
+        "50%": 50.0,
+        "75%": 73.0,
+        "max": 99.0
+      }
+    },
+    "categorical_summary": {
+      "gender": {
+        "unique_values": 2,
+        "value_counts": {
+          "Female": 112,
+          "Male": 88
+        }
+      }
+    },
+    "missing_values": {
+      "customerid": 0,
+      "gender": 0,
+      "age": 0,
+      "annual_income_(k$)": 0,
+      "spending_score_(1-100)": 0
+    },
+    "correlation": {
+      "customerid": {
+        "customerid": 1.0,
+        "age": -0.0268,
+        "annual_income_(k$)": 0.9775,
+        "spending_score_(1-100)": 0.0138
+      },
+      "age": {
+        "customerid": -0.0268,
+        "age": 1.0,
+        "annual_income_(k$)": -0.0124,
+        "spending_score_(1-100)": -0.3272
+      },
+      "annual_income_(k$)": {
+        "customerid": 0.9775,
+        "age": -0.0124,
+        "annual_income_(k$)": 1.0,
+        "spending_score_(1-100)": 0.0099
+      },
+      "spending_score_(1-100)": {
+        "customerid": 0.0138,
+        "age": -0.3272,
+        "annual_income_(k$)": 0.0099,
+        "spending_score_(1-100)": 1.0
+      }
+    }
+  },
+  "visualization": {
+    "num_charts": 0,
+    "charts": []
+  },
+  "feature_engineering": null,
+  "training": null,
+  "hyperparameter_tuning": null,
+  "evaluation": null,
+  "conclusions": {
+    "best_model": "N/A",
+    "cv_score": "N/A",
+    "final_accuracy": null,
+    "final_f1": null,
+    "recommendation": "No model training was part of this run \u2014 see cleaning/EDA/visualization results above."
+  }
+}

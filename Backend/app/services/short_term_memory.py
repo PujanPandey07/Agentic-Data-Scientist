@@ -1,5 +1,8 @@
+# services/short_term_memory.py
+import asyncio
 import hashlib
 import logging
+from collections import defaultdict
 from pathlib import Path
 
 from cache.json_store import JsonCacheStore
@@ -22,30 +25,37 @@ class ShortTermMemoryManager:
         directory = directory or Path(__file__).resolve(
         ).parent.parent / "cache" / "data" / "conversations"
         self.store = JsonCacheStore(directory)
+        # One lock per conversation_id — same reasoning as
+        # LongTermMemoryManager: serializes read-modify-write calls for
+        # the SAME conversation, while different conversations still
+        # run fully in parallel.
+        self._locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
-    def get(self, conversation_id: str) -> ShortTermMemory:
-        value = self.store.get(self._key(conversation_id))
+    async def get(self, conversation_id: str) -> ShortTermMemory:
+        value = await asyncio.to_thread(self.store.get, self._key(conversation_id))
         if value is None:
             return ShortTermMemory(conversation_id=conversation_id)
         return ShortTermMemory.model_validate(value)
 
-    def add_message(
+    async def add_message(
         self,
         conversation_id: str,
         role: str,
         content: str,
     ) -> ShortTermMemory:
-        memory = self.get(conversation_id)
-        message = ConversationMessage(
-            role=role,
-            content=content[:self.MAX_MESSAGE_CHARS],
-        )
-        memory.recent_messages.append(message)
-        self._manage_context(memory)
-        self.set(memory)
-        return memory
+        async with self._locks[conversation_id]:
+            memory = await self.get(conversation_id)
+            message = ConversationMessage(
+                role=role,
+                content=content[:self.MAX_MESSAGE_CHARS],
+            )
+            memory.recent_messages.append(message)
+            self._manage_context(memory)
+            await self.set(memory)
+            return memory
 
     def _manage_context(self, memory: ShortTermMemory) -> None:
+        # Pure in-memory logic, no store access — stays synchronous.
         overflow = max(0, len(memory.recent_messages) - self.MAX_MESSAGES)
         while overflow < len(memory.recent_messages) and self._message_chars(
             ShortTermMemory(
@@ -80,13 +90,14 @@ class ShortTermMemoryManager:
             existing_summary, new_points) if part)
         return combined[-self.MAX_CONTEXT_CHARS:]
 
-    def set(self, memory: ShortTermMemory) -> None:
-        self.store.set(
+    async def set(self, memory: ShortTermMemory) -> None:
+        await asyncio.to_thread(
+            self.store.set,
             self._key(memory.conversation_id),
             memory.model_dump(mode="json"),
         )
 
-    def update_facts(
+    async def update_facts(
         self,
         conversation_id: str,
         *,
@@ -94,22 +105,23 @@ class ShortTermMemoryManager:
         decision: str | None = None,
         unresolved_question: str | None = None,
     ) -> ShortTermMemory:
-        memory = self.get(conversation_id)
-        if current_goal:
-            memory.current_goal = current_goal
-        if decision and decision not in memory.recent_decisions:
-            memory.recent_decisions = (
-                memory.recent_decisions + [decision]
-            )[-self.MAX_DECISIONS:]
-        if unresolved_question and unresolved_question not in memory.unresolved_questions:
-            memory.unresolved_questions = (
-                memory.unresolved_questions + [unresolved_question]
-            )[-self.MAX_UNRESOLVED_QUESTIONS:]
-        self.set(memory)
-        return memory
+        async with self._locks[conversation_id]:
+            memory = await self.get(conversation_id)
+            if current_goal:
+                memory.current_goal = current_goal
+            if decision and decision not in memory.recent_decisions:
+                memory.recent_decisions = (
+                    memory.recent_decisions + [decision]
+                )[-self.MAX_DECISIONS:]
+            if unresolved_question and unresolved_question not in memory.unresolved_questions:
+                memory.unresolved_questions = (
+                    memory.unresolved_questions + [unresolved_question]
+                )[-self.MAX_UNRESOLVED_QUESTIONS:]
+            await self.set(memory)
+            return memory
 
-    def invalidate(self, conversation_id: str) -> None:
-        self.store.invalidate(self._key(conversation_id))
+    async def invalidate(self, conversation_id: str) -> None:
+        await asyncio.to_thread(self.store.invalidate, self._key(conversation_id))
 
     @staticmethod
     def _key(conversation_id: str) -> str:

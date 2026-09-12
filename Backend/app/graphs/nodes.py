@@ -212,16 +212,19 @@ async def router(state):
     # Record completion from a just-finished viz/FE branch (fan-out or
     # standalone) — done here, in one place, since router only ever
     # runs one instance at a time (no concurrency risk for this update).
+    viz_done = bool(state.get("_viz_just_completed"))
+    fe_done = bool(state.get("_fe_just_completed"))
+
     new_completed = []
     new_logs = []
 
-    if state.get("_viz_just_completed"):
+    if viz_done:
         new_completed.append("visualization")
         new_logs.append({"node": "visualization", "status": "success",
                         "message": state["_viz_just_completed"]})
         state["_viz_just_completed"] = None
 
-    if state.get("_fe_just_completed"):
+    if fe_done:
         new_completed.append("feature_engineering")
         new_logs.append({"node": "feature_engineering",
                         "status": "success", "message": state["_fe_just_completed"]})
@@ -241,14 +244,24 @@ async def router(state):
     )
 
     if both_pending:
+        # About to DISPATCH the fan-out now — pre-advancing is correct
+        # here, since route_task uses fan_out_viz_fe (not current_task)
+        # to route this case.
         new_remaining = [t for t in remaining if t not in (
             "visualization", "feature_engineering")]
         state["current_task"] = new_remaining[0] if new_remaining else None
         state["remaining_tasks"] = new_remaining[1:] if len(
             new_remaining) > 1 else []
         state["fan_out_viz_fe"] = True
-    elif current_task in ("visualization", "feature_engineering"):
-        # standalone (non-fanout) case — advance past just this one, as before
+    elif viz_done or fe_done:
+        # We just came BACK from running visualization/feature_engineering
+        # standalone — only NOW is it safe to advance past it. This is the
+        # fix: previously this branch checked
+        # `current_task in ("visualization", "feature_engineering")`,
+        # which was ALSO true the first time router saw that task —
+        # before it had ever run — so it advanced past the task
+        # immediately instead of dispatching it. Checking viz_done/fe_done
+        # instead ties the advance to actual completion, not just name.
         state["current_task"] = remaining[0] if remaining else None
         state["remaining_tasks"] = remaining[1:] if len(remaining) > 1 else []
         state["fan_out_viz_fe"] = False
@@ -614,6 +627,7 @@ async def evaluation_node(state):
     model_path = state.get("tuned_model_path") or state.get(
         "trained_model_path")
     analysis_plan = state.get("analysis_plan")
+    dataset_id = state.get("dataset_id")
 
     if df is None or target_column is None or model_path is None:
         state["evaluation_report"] = {
@@ -641,6 +655,7 @@ async def evaluation_node(state):
         target_column=target_column,
         model_path=model_path,
         problem_type=problem_type,
+        dataset_id=dataset_id,
     )
 
     state["evaluation_report"] = report
@@ -671,7 +686,7 @@ async def reporting_node(state):
     conversation_id = state.get("conversation_id") or report.get("dataset_id")
     recommendation = (report.get("conclusions") or {}).get("recommendation")
     if conversation_id and recommendation and recommendation != "N/A":
-        long_term_memory_manager.upsert(
+        await long_term_memory_manager.upsert(
             conversation_id,
             "latest_analysis_conclusion",
             recommendation,
@@ -763,10 +778,10 @@ async def intent_router_node(state):
     conversation_id = state.get("conversation_id") or dataset_id
     user_query = state.get("user_query", "")
     if conversation_id and user_query:
-        short_term_memory_manager.add_message(
+        await short_term_memory_manager.add_message(
             conversation_id, "user", user_query
         )
-        short_term_memory_manager.update_facts(
+        await short_term_memory_manager.update_facts(
             conversation_id, current_goal=user_query
         )
         await long_term_memory_manager.extract_and_store(
@@ -835,7 +850,7 @@ async def direct_answer_node(state):
     response = await llm.ainvoke(messages)
     state["direct_answer"] = response.content
     if conversation_id:
-        short_term_memory_manager.add_message(
+        await short_term_memory_manager.add_message(
             conversation_id, "assistant", response.content
         )
     print(

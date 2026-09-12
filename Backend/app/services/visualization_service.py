@@ -1,3 +1,4 @@
+# services/visualization_service.py
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -27,10 +28,17 @@ class VisualizationService:
         self,
         dataframe: pd.DataFrame,
         visualization_plan: VisualizationPlanResponse,
+        dataset_id: str,
     ):
         logger.info(
             f"Starting visualization generation: {len(visualization_plan.visualizations)} charts planned"
         )
+
+        # Namespace every chart under this dataset's own subfolder, so two
+        # different datasets sharing a column name (e.g. "age") never
+        # overwrite each other's chart files on disk.
+        dataset_dir = self.output_dir / dataset_id
+        dataset_dir.mkdir(parents=True, exist_ok=True)
 
         results = []
         failures = []
@@ -41,15 +49,20 @@ class VisualizationService:
 
             try:
                 if chart_type == "scatter":
-                    result = self.generate_scatter_plot(dataframe, plan)
+                    result = self.generate_scatter_plot(
+                        dataframe, plan, dataset_dir)
                 elif chart_type == "bar":
-                    result = self.generate_bar_chart(dataframe, plan)
+                    result = self.generate_bar_chart(
+                        dataframe, plan, dataset_dir)
                 elif chart_type == "histogram":
-                    result = self.generate_histogram(dataframe, plan)
+                    result = self.generate_histogram(
+                        dataframe, plan, dataset_dir)
                 elif chart_type == "box":
-                    result = self.generate_box_plot(dataframe, plan)
+                    result = self.generate_box_plot(
+                        dataframe, plan, dataset_dir)
                 elif chart_type == "heatmap":
-                    result = self.generate_heatmap(dataframe, plan)
+                    result = self.generate_heatmap(
+                        dataframe, plan, dataset_dir)
                 else:
                     raise ValueError(f"Unsupported chart type: {chart_type}")
 
@@ -93,6 +106,7 @@ class VisualizationService:
         self,
         dataframe: pd.DataFrame,
         plan: VisualizationPlan,
+        output_dir: Path,
     ):
 
         if not plan.x_column:
@@ -138,7 +152,7 @@ class VisualizationService:
             f"{plan.x_column}_bar_chart.png"
         )
 
-        output_path = self.output_dir / filename
+        output_path = output_dir / filename
 
         plt.savefig(output_path)
         plt.close()
@@ -158,6 +172,7 @@ class VisualizationService:
         self,
         dataframe: pd.DataFrame,
         plan: VisualizationPlan,
+        output_dir: Path,
     ):
 
         if not plan.x_column:
@@ -188,7 +203,7 @@ class VisualizationService:
             f"{plan.x_column}_histogram.png"
         )
 
-        output_path = self.output_dir / filename
+        output_path = output_dir / filename
 
         plt.savefig(output_path)
         plt.close()
@@ -207,6 +222,7 @@ class VisualizationService:
         self,
         dataframe: pd.DataFrame,
         plan: VisualizationPlan,
+        output_dir: Path,
     ):
 
         if not plan.x_column:
@@ -265,7 +281,7 @@ class VisualizationService:
             f"{plan.y_column}_scatter.png"
         )
 
-        output_path = self.output_dir / filename
+        output_path = output_dir / filename
 
         plt.savefig(output_path)
         plt.close()
@@ -286,6 +302,7 @@ class VisualizationService:
         self,
         dataframe: pd.DataFrame,
         plan: VisualizationPlan,
+        output_dir: Path,
     ):
 
         if not plan.y_column:
@@ -339,7 +356,7 @@ class VisualizationService:
                 f"{plan.y_column}_box.png"
             )
 
-        output_path = self.output_dir / filename
+        output_path = output_dir / filename
 
         plt.savefig(output_path)
         plt.close()
@@ -359,6 +376,7 @@ class VisualizationService:
         self,
         dataframe: pd.DataFrame,
         plan: VisualizationPlan,
+        output_dir: Path,
     ):
 
         numerical_dataframe = dataframe.select_dtypes(
@@ -392,7 +410,7 @@ class VisualizationService:
 
         filename = "correlation_heatmap.png"
 
-        output_path = self.output_dir / filename
+        output_path = output_dir / filename
 
         plt.savefig(output_path)
         plt.close()

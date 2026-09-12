@@ -1,3 +1,4 @@
+# services/evaluation.py
 import warnings
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import learning_curve
@@ -20,7 +21,7 @@ warnings.filterwarnings("ignore", message="Scoring failed.*")
 
 
 class EvaluationService:
-    def evaluate(self, df, target_column, model_path, problem_type):
+    def evaluate(self, df, target_column, model_path, problem_type, dataset_id):
         logger.info(
             f"Starting evaluation: model={model_path}, problem_type={problem_type}")
 
@@ -46,22 +47,29 @@ class EvaluationService:
 
         y_pred = model.predict(X)
 
+        # Namespace every evaluation plot under this dataset's own
+        # subfolder, so two different datasets/runs never overwrite
+        # each other's confusion matrix / residual plot / etc.
+        output_dir = f"outputs/evaluation/{dataset_id}"
+        os.makedirs(output_dir, exist_ok=True)
+
         if problem_type == "classification":
             metrics = self._classification_metrics(y_encoded, y_pred)
             artifacts = self._classification_artifacts(
-                y_encoded, y_pred, target_column)
+                y_encoded, y_pred, target_column, output_dir)
         else:
             metrics = self._regression_metrics(y_encoded, y_pred)
             artifacts = self._regression_artifacts(
-                y_encoded, y_pred, target_column)
+                y_encoded, y_pred, target_column, output_dir)
 
         # Learning curve for ALL models
-        lc_path = self._plot_learning_curve(model, X, y_encoded, problem_type)
+        lc_path = self._plot_learning_curve(
+            model, X, y_encoded, problem_type, output_dir)
         if lc_path:
             artifacts["learning_curve_path"] = lc_path
 
         # Boosting curve for tree boosters
-        bc_path = self._plot_boosting_curve(model)
+        bc_path = self._plot_boosting_curve(model, output_dir)
         if bc_path:
             artifacts["boosting_curve_path"] = bc_path
 
@@ -75,26 +83,17 @@ class EvaluationService:
             "artifacts": artifacts,
         }
 
-    def _plot_learning_curve(self, model, X, y, problem_type):
-        os.makedirs("outputs/evaluation", exist_ok=True)
+    def _plot_learning_curve(self, model, X, y, problem_type, output_dir):
         try:
             n_samples = len(X)
             scoring = "accuracy" if problem_type == "classification" else "neg_mean_squared_error"
 
-            # On small held-out sets, low train_size fractions (e.g. 10%)
-            # can produce a training fold too small to contain every class
-            # — sklearn's learning_curve then raises "Invalid classes
-            # inferred" per-fold. Scale both cv and the minimum train
-            # fraction to the actual sample count instead of using fixed
-            # values that assumed a much larger dataset.
             if problem_type == "classification":
                 min_class_count = int(pd.Series(y).value_counts().min())
                 cv = max(2, min(5, min_class_count))
             else:
                 cv = min(5, max(2, n_samples // 5))
 
-            # Ensure the smallest train_size fraction still yields at least
-            # ~5 samples per class (classification) or 10 rows (regression).
             num_classes = pd.Series(y).nunique(
             ) if problem_type == "classification" else 1
             min_needed = max(10, num_classes * 5)
@@ -125,7 +124,7 @@ class EvaluationService:
             plt.grid(True, alpha=0.3)
             plt.tight_layout()
 
-            path = "outputs/evaluation/learning_curve.png"
+            path = f"{output_dir}/learning_curve.png"
             plt.savefig(path, dpi=150)
             plt.close()
             return path
@@ -133,9 +132,8 @@ class EvaluationService:
             logger.warning(f"Learning curve failed: {e}")
             return None
 
-    def _plot_boosting_curve(self, model):
+    def _plot_boosting_curve(self, model, output_dir):
         """Only for models trained with eval_set (XGBoost)."""
-        os.makedirs("outputs/evaluation", exist_ok=True)
         try:
             evals = getattr(model, 'evals_result_', None)
             if not evals:
@@ -153,7 +151,7 @@ class EvaluationService:
             plt.grid(True, alpha=0.3)
             plt.tight_layout()
 
-            path = "outputs/evaluation/boosting_curve.png"
+            path = f"{output_dir}/boosting_curve.png"
             plt.savefig(path, dpi=150)
             plt.close()
             return path
@@ -172,8 +170,7 @@ class EvaluationService:
             "f1_weighted": round(float(f1_score(y_true, y_pred, average="weighted", zero_division=0)), 5),
         }
 
-    def _classification_artifacts(self, y_true, y_pred, target_name):
-        os.makedirs("outputs/evaluation", exist_ok=True)
+    def _classification_artifacts(self, y_true, y_pred, target_name, output_dir):
         cm = confusion_matrix(y_true, y_pred)
         labels = sorted(list(set(y_true) | set(y_pred)))
 
@@ -185,7 +182,7 @@ class EvaluationService:
         plt.xlabel("Predicted")
         plt.tight_layout()
 
-        path = "outputs/evaluation/confusion_matrix.png"
+        path = f"{output_dir}/confusion_matrix.png"
         plt.savefig(path, dpi=150)
         plt.close()
 
@@ -205,8 +202,7 @@ class EvaluationService:
             "r2": round(float(r2_score(y_true, y_pred)), 5),
         }
 
-    def _regression_artifacts(self, y_true, y_pred, target_name):
-        os.makedirs("outputs/evaluation", exist_ok=True)
+    def _regression_artifacts(self, y_true, y_pred, target_name, output_dir):
         residuals = np.array(y_true) - np.array(y_pred)
 
         plt.figure(figsize=(8, 6))
@@ -216,7 +212,7 @@ class EvaluationService:
         plt.ylabel("Residual")
         plt.title(f"Residual Plot — {target_name}")
         plt.tight_layout()
-        path = "outputs/evaluation/residual_plot.png"
+        path = f"{output_dir}/residual_plot.png"
         plt.savefig(path, dpi=150)
         plt.close()
 
@@ -229,7 +225,7 @@ class EvaluationService:
         plt.ylabel("Predicted")
         plt.title(f"Actual vs Predicted — {target_name}")
         plt.tight_layout()
-        path2 = "outputs/evaluation/actual_vs_predicted.png"
+        path2 = f"{output_dir}/actual_vs_predicted.png"
         plt.savefig(path2, dpi=150)
         plt.close()
 

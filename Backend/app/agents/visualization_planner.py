@@ -1,9 +1,11 @@
+# agents/visualization_planner.py
 import logging
 from schema.visualization_plan import VisualizationPlanResponse
 from prompts.visualization_prompt import visualization_prompt
 from llm.provider import get_llm
 from utilis.llm_plan import invoke_with_repair
 from utilis.constraints import format_constraints
+from utilis.prompt_context import summarize_eda_report_for_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +41,7 @@ Dataset Summary:
 {dataset_summary}
 
 EDA Report:
-{eda_report}{format_constraints(constraints)}
+{summarize_eda_report_for_prompt(eda_report)}{format_constraints(constraints)}
 """,
             },
         ]

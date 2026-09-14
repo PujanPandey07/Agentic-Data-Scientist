@@ -11,9 +11,6 @@ setup_logging()
 
 
 def _prompt_for_decision(payload: dict) -> dict:
-    """Show an interrupt payload and collect a decision dict shaped as
-    {"approved": bool, "edit_instruction": str | None} — the shape both
-    plan_review_node and confirm_refinement_node now expect back."""
     interrupt_type = payload.get("type", "unknown")
 
     print(f"\n========== INTERRUPT: {interrupt_type} ==========")
@@ -30,6 +27,14 @@ def _prompt_for_decision(payload: dict) -> dict:
                 for instr in instrs:
                     print(f"  [{stage}] {instr}")
 
+        # NEW — surface validation problems clearly, and refuse plain
+        # "y" approval until they're addressed via an edit.
+        problems = payload.get("validation_problems") or []
+        if problems:
+            print("\n⚠ VALIDATION PROBLEMS — must be fixed before approving:")
+            for p in problems:
+                print(f"  - {p}")
+
     elif interrupt_type == "refinement":
         print(f"Stage: {payload.get('stage')}")
         print(f"Instruction: {payload.get('instruction')}")
@@ -37,15 +42,20 @@ def _prompt_for_decision(payload: dict) -> dict:
 
     print("===========================================")
 
+    if interrupt_type == "plan_review" and payload.get("requires_input"):
+        print("This plan has unresolved problems — you must use 'e' to "
+              "edit and address them (plain approval is disabled).")
+        edit_text = input(
+            "Enter your fix (e.g. 'target column is X'): ").strip()
+        return {"approved": False, "edit_instruction": edit_text}
+
     choice = input("Approve? (y = yes / n = no / e = edit): ").strip().lower()
 
-    if choice == "y":
+    if choice in ("y", "yes"):
         return {"approved": True, "edit_instruction": None}
 
-    if choice == "e":
+    if choice in ("e", "edit"):
         edit_text = input("Enter your edit/instruction: ").strip()
-        # plan_review treats any edit as "not approved yet, re-plan with this"
-        # confirm_refinement treats an edit as "approved, but with this tweak"
         approved = interrupt_type == "refinement"
         return {"approved": approved, "edit_instruction": edit_text}
 
@@ -56,11 +66,11 @@ async def main():
     # ---------------------------------------------------------------
     # Pick which query to test by uncommenting one of these:
     # ---------------------------------------------------------------
-    user_query = "Build a classification model on the Iris dataset using XGBoost"
+    user_query = "Build a classification model on this dataset using XGBoost and tune its hyperparameter , is xgboost the best model for this dataset , show with the plots and all"
     # user_query = "What does F1 score mean?"
     # user_query = "use XGBoost as the primary algorithm and tune hyperparameters"
 
-    dataset_id = "08f054c7-0d54-4db4-95db-b84616f7bf25"
+    dataset_id = "162d284a-938b-40df-9100-e838f802366d"
 
     # -----------------------------------------------------------------
     # True only on the very FIRST run for a given dataset_id/thread_id —

@@ -1,4 +1,6 @@
 # db.py
+from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import Request
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
 
@@ -19,3 +21,16 @@ async_session = async_sessionmaker(engine, expire_on_commit=False)
 # models.Model base class.
 class Base(DeclarativeBase):
     pass
+
+
+# core/db.py — add this function to the existing file (keep everything else as-is)
+
+
+async def get_db_session(request: Request) -> AsyncSession:
+    """FastAPI dependency — hands a route a fresh AsyncSession scoped to
+    just this request, using the sessionmaker created once at startup
+    (see lifespan in main.py). Usage:
+        async def my_route(session: AsyncSession = Depends(get_db_session)):
+    """
+    async with request.app.state.db_session() as session:
+        yield session

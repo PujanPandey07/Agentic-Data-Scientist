@@ -1,0 +1,17 @@
+{
+  "conversation_id": "548920bd-98ee-4950-bdab-3ce33db3a7a2",
+  "conversation_summary": "",
+  "recent_messages": [
+    {
+      "role": "user",
+      "content": "analyze this dataset and train it with what it needs take work_mode as target column"
+    },
+    {
+      "role": "user",
+      "content": "analyze this dataset and train it with what it needs take work_mode as target column"
+    }
+  ],
+  "current_goal": "analyze this dataset and train it with what it needs take work_mode as target column",
+  "recent_decisions": [],
+  "unresolved_questions": []
+}

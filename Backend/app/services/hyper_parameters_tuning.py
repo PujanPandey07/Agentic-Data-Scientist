@@ -1,3 +1,4 @@
+# services/hyper_parameters_tuning.py
 import os
 import time
 import logging
@@ -24,6 +25,20 @@ class HyperparameterTuningService:
 
         X = df.drop(columns=[target_column])
         y = df[target_column]
+
+        # Same defensive guard as TrainingService — drop any raw
+        # non-numeric columns left behind by feature engineering (e.g. a
+        # 'col' string column sitting alongside its 'col_encoded' numeric
+        # version) before handing data to a model that requires numeric
+        # input.
+        non_numeric_cols = X.select_dtypes(
+            exclude=["number", "bool"]).columns.tolist()
+        if non_numeric_cols:
+            logger.warning(
+                f"Dropping {len(non_numeric_cols)} non-numeric column(s) "
+                f"before tuning: {non_numeric_cols}"
+            )
+            X = X.drop(columns=non_numeric_cols)
 
         if problem_type == "classification" and not pd.api.types.is_numeric_dtype(y):
             from sklearn.preprocessing import LabelEncoder
@@ -194,15 +209,6 @@ class HyperparameterTuningService:
             return LGBMRegressor(verbose=-1, **params)
 
         elif algorithm == "neural_network_mlp":
-            # NOTE: early_stopping + n_iter_no_change is a general robustness
-            # improvement (holds out part of training data to detect
-            # plateauing and stop early, usually converging cleaner than
-            # running the full max_iter regardless). This is NOT a confirmed
-            # fix for a specific diagnosed warning — the actual MLP warning
-            # text wasn't available when this was written. If warnings
-            # persist, paste the exact text and this can be tuned precisely
-            # (e.g. raising max_iter further, or adjusting learning_rate_init
-            # range if it's an "optimizer hasn't converged" warning).
             n_layers = trial.suggest_int("n_layers", 1, 3)
             layer_size = trial.suggest_categorical("layer_size", [32, 64, 128])
             params = {

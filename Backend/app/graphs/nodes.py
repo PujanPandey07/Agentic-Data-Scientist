@@ -5,6 +5,7 @@ from utilis.constraints import format_constraints, detect_forced_algorithm
 from schema.model_selection import ModelCandidate, ModelSelectionPlan
 from langgraph.types import interrupt
 from agents.constraint_extractor import constraints_extractor_agent
+from .plan_validation import validate_plan, extract_explicit_target_column
 
 from agents.refine_target import refine_target_agent
 from llm.provider import get_llm
@@ -209,11 +210,9 @@ async def initialize_execution_node(state):
 
 
 async def router(state):
-    # Record completion from a just-finished viz/FE branch (fan-out or
-    # standalone) — done here, in one place, since router only ever
-    # runs one instance at a time (no concurrency risk for this update).
     viz_done = bool(state.get("_viz_just_completed"))
     fe_done = bool(state.get("_fe_just_completed"))
+    completing_fan_out = bool(state.get("fan_out_viz_fe"))
 
     new_completed = []
     new_logs = []
@@ -244,8 +243,8 @@ async def router(state):
     )
 
     if both_pending:
-        # About to DISPATCH the fan-out now — pre-advancing is correct
-        # here, since route_task uses fan_out_viz_fe (not current_task)
+        # Dispatching the fan-out NOW — pre-advance current_task past
+        # both, since route_task uses fan_out_viz_fe (not current_task)
         # to route this case.
         new_remaining = [t for t in remaining if t not in (
             "visualization", "feature_engineering")]
@@ -253,19 +252,18 @@ async def router(state):
         state["remaining_tasks"] = new_remaining[1:] if len(
             new_remaining) > 1 else []
         state["fan_out_viz_fe"] = True
-    elif viz_done or fe_done:
-        # We just came BACK from running visualization/feature_engineering
-        # standalone — only NOW is it safe to advance past it. This is the
-        # fix: previously this branch checked
-        # `current_task in ("visualization", "feature_engineering")`,
-        # which was ALSO true the first time router saw that task —
-        # before it had ever run — so it advanced past the task
-        # immediately instead of dispatching it. Checking viz_done/fe_done
-        # instead ties the advance to actual completion, not just name.
+    elif (viz_done or fe_done) and not completing_fan_out:
+        # Standalone completion (viz/fe ran alone, not as a fan-out
+        # pair) — current_task was NOT pre-advanced for this case, so
+        # advance past it now.
         state["current_task"] = remaining[0] if remaining else None
         state["remaining_tasks"] = remaining[1:] if len(remaining) > 1 else []
         state["fan_out_viz_fe"] = False
     else:
+        # Either nothing completed this call, OR we just finished
+        # completing a fan-out pair whose current_task was ALREADY
+        # advanced at dispatch time — don't advance again, just reset
+        # the flag.
         state["fan_out_viz_fe"] = False
 
     return state
@@ -479,6 +477,7 @@ async def visualization_node(state):
     visualizations = visualization_service.generate_visualizations(
         dataframe=dataframe,
         visualization_plan=visualization_plan,
+        dataset_id=state.get("dataset_id"),
     )
 
     print("Running visualization node...")
@@ -987,6 +986,7 @@ def _build_plan_summary(plan, constraints: dict) -> str:
 async def plan_review_node(state):
     plan = state.get("analysis_plan")
     constraints = state.get("user_constraints") or {}
+    dataset_summary = state.get("dataset_summary")
 
     # Capture the ORIGINAL query once, the first time this node runs —
     # never overwritten again. Every later revision rebuilds from this,
@@ -994,9 +994,13 @@ async def plan_review_node(state):
     if not state.get("base_user_query"):
         state["base_user_query"] = state.get("user_query")
 
+    validation_problems = validate_plan(plan, dataset_summary)
+
     decision = interrupt({
         "type": "plan_review",
         "summary": _build_plan_summary(plan, constraints),
+        "validation_problems": validation_problems,
+        "requires_input": bool(validation_problems),
         "tasks": plan.tasks if plan else [],
         "target_column": state.get("target_column"),
         "problem_type": plan.problem_type if plan else None,
@@ -1027,6 +1031,23 @@ async def plan_review_node(state):
         new_plan = await planner_agent.plan(
             combined_query, state.get("dataset_summary")
         )
+
+        # Deterministic override: if the user's edit explicitly named a
+        # real column as the target, trust that over whatever the LLM
+        # inferred from the combined free text — exact-match string
+        # logic is more reliable here than hoping the general-purpose
+        # planner reliably notices a short instruction buried in a large
+        # prompt (this was the actual cause of the plan_review loop).
+        explicit_target = extract_explicit_target_column(
+            edit_instruction, state.get("dataset_summary")
+        )
+        if explicit_target:
+            new_plan.target_column = explicit_target
+            logger.info(
+                f"Explicit target column '{explicit_target}' extracted "
+                f"from user edit, overriding planner's inference"
+            )
+
         state["analysis_plan"] = new_plan
         state["target_column"] = new_plan.target_column
 

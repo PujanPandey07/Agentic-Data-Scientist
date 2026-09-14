@@ -1,10 +1,14 @@
 # api/reports.py
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.db import get_db_session
+from core.security import get_current_user_id
 from schema.reports import ChartInfo, ChartsResponse
+from api.chat import _get_owned_conversation
 
 router = APIRouter(prefix="/api/runs", tags=["Reports"])
 
@@ -19,21 +23,6 @@ def _path_to_static_url(file_path: str) -> str:
         normalized = normalized[len("outputs/"):]
     return f"/static/{normalized}"
 
-
-async def _get_snapshot_or_404(request: Request, thread_id: str):
-    # Same aget_state pattern used in /chat — reads the checkpoint
-    # without running anything. Empty .values means this thread_id
-    # was never actually started via /runs.
-    graph = request.app.state.graph
-    config = {"configurable": {"thread_id": thread_id}}
-    snapshot = await graph.aget_state(config)
-    if not snapshot.values:
-        raise HTTPException(
-            status_code=404, detail="No run found for this thread_id.")
-    return snapshot
-
-
-# api/reports.py — only get_report changes, everything else stays the same
 
 def _convert_report_image_paths(report: dict) -> dict:
     """Rewrite every known raw disk-path field inside a final_report into
@@ -72,9 +61,33 @@ def _convert_report_image_paths(report: dict) -> dict:
     return report
 
 
+async def _get_snapshot_for_owned_thread(
+    request: Request, thread_id: str, user_id: int, session: AsyncSession,
+):
+    # Ownership check FIRST — confirms this thread_id belongs to the
+    # requesting user (404s otherwise, same as chat/conversations).
+    # Only once ownership is confirmed do we touch the checkpointer.
+    await _get_owned_conversation(session, thread_id, user_id)
+
+    graph = request.app.state.graph
+    config = {"configurable": {"thread_id": thread_id}}
+    snapshot = await graph.aget_state(config)
+    if not snapshot.values:
+        # Shouldn't normally happen if a Conversation row exists, but
+        # guards against a corrupted/missing checkpoint regardless.
+        raise HTTPException(
+            status_code=404, detail="No run found for this thread_id.")
+    return snapshot
+
+
 @router.get("/{thread_id}/report")
-async def get_report(thread_id: str, request: Request):
-    snapshot = await _get_snapshot_or_404(request, thread_id)
+async def get_report(
+    thread_id: str,
+    request: Request,
+    user_id: int = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_session),
+):
+    snapshot = await _get_snapshot_for_owned_thread(request, thread_id, user_id, session)
     report = snapshot.values.get("final_report")
     if report is None:
         raise HTTPException(
@@ -85,8 +98,13 @@ async def get_report(thread_id: str, request: Request):
 
 
 @router.get("/{thread_id}/report/download")
-async def download_report(thread_id: str, request: Request):
-    snapshot = await _get_snapshot_or_404(request, thread_id)
+async def download_report(
+    thread_id: str,
+    request: Request,
+    user_id: int = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_session),
+):
+    snapshot = await _get_snapshot_for_owned_thread(request, thread_id, user_id, session)
     report = snapshot.values.get("final_report")
     if report is None or not report.get("report_path"):
         raise HTTPException(
@@ -105,8 +123,13 @@ async def download_report(thread_id: str, request: Request):
 
 
 @router.get("/{thread_id}/charts", response_model=ChartsResponse)
-async def get_charts(thread_id: str, request: Request):
-    snapshot = await _get_snapshot_or_404(request, thread_id)
+async def get_charts(
+    thread_id: str,
+    request: Request,
+    user_id: int = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_session),
+):
+    snapshot = await _get_snapshot_for_owned_thread(request, thread_id, user_id, session)
     results = snapshot.values.get("visualization_results") or []
 
     charts = [
@@ -125,8 +148,13 @@ async def get_charts(thread_id: str, request: Request):
 
 
 @router.get("/{thread_id}/model/download")
-async def download_model(thread_id: str, request: Request):
-    snapshot = await _get_snapshot_or_404(request, thread_id)
+async def download_model(
+    thread_id: str,
+    request: Request,
+    user_id: int = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_session),
+):
+    snapshot = await _get_snapshot_for_owned_thread(request, thread_id, user_id, session)
     model_path_str = snapshot.values.get(
         "tuned_model_path") or snapshot.values.get("trained_model_path")
 

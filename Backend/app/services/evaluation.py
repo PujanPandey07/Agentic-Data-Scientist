@@ -38,6 +38,20 @@ class EvaluationService:
         X = df.drop(columns=[target_column])
         y = df[target_column]
 
+        # Same defensive guard as TrainingService/HyperparameterTuningService
+        # — drop any raw non-numeric columns left behind by feature
+        # engineering before scoring against a model that requires numeric
+        # input. Keeps evaluation's feature set consistent with what the
+        # model was actually trained on.
+        non_numeric_cols = X.select_dtypes(
+            exclude=["number", "bool"]).columns.tolist()
+        if non_numeric_cols:
+            logger.warning(
+                f"Dropping {len(non_numeric_cols)} non-numeric column(s) "
+                f"before evaluation: {non_numeric_cols}"
+            )
+            X = X.drop(columns=non_numeric_cols)
+
         y_encoded = y
         if problem_type == "classification" and not pd.api.types.is_numeric_dtype(y):
             le = LabelEncoder()
@@ -47,9 +61,6 @@ class EvaluationService:
 
         y_pred = model.predict(X)
 
-        # Namespace every evaluation plot under this dataset's own
-        # subfolder, so two different datasets/runs never overwrite
-        # each other's confusion matrix / residual plot / etc.
         output_dir = f"outputs/evaluation/{dataset_id}"
         os.makedirs(output_dir, exist_ok=True)
 
@@ -62,13 +73,11 @@ class EvaluationService:
             artifacts = self._regression_artifacts(
                 y_encoded, y_pred, target_column, output_dir)
 
-        # Learning curve for ALL models
         lc_path = self._plot_learning_curve(
             model, X, y_encoded, problem_type, output_dir)
         if lc_path:
             artifacts["learning_curve_path"] = lc_path
 
-        # Boosting curve for tree boosters
         bc_path = self._plot_boosting_curve(model, output_dir)
         if bc_path:
             artifacts["boosting_curve_path"] = bc_path

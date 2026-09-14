@@ -1,3 +1,4 @@
+# services/trainning.py
 import time
 import logging
 import warnings
@@ -50,6 +51,23 @@ class TrainingService:
 
         X = df.drop(columns=[target_column])
         y = df[target_column]
+
+        # Defensive guard: feature engineering may leave raw (non-numeric)
+        # columns alongside their encoded counterparts (e.g. label_encode
+        # adds 'col_encoded' but keeps the original 'col' string column
+        # too). Models like XGBoost/sklearn require purely numeric input,
+        # so drop anything non-numeric here rather than trusting the plan
+        # got every column type right — this is the last line of defense
+        # before fitting.
+        non_numeric_cols = X.select_dtypes(
+            exclude=["number", "bool"]).columns.tolist()
+        if non_numeric_cols:
+            logger.warning(
+                f"Dropping {len(non_numeric_cols)} non-numeric column(s) "
+                f"before training (likely raw versions of encoded "
+                f"columns): {non_numeric_cols}"
+            )
+            X = X.drop(columns=non_numeric_cols)
 
         is_classification = self._is_classification_metric(plan.scoring_metric)
 

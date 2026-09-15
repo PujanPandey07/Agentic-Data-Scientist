@@ -1,0 +1,13 @@
+{
+  "conversation_id": "d27db3d2-7ce5-4346-8ecb-37b0bb207b59",
+  "conversation_summary": "",
+  "recent_messages": [
+    {
+      "role": "user",
+      "content": "do the visualization and eda part for me no need for others"
+    }
+  ],
+  "current_goal": "do the visualization and eda part for me no need for others",
+  "recent_decisions": [],
+  "unresolved_questions": []
+}

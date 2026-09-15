@@ -1,0 +1,13 @@
+{
+  "conversation_id": "ce04649d-3b64-4f6d-a69c-1e78e91d0df9",
+  "conversation_summary": "",
+  "recent_messages": [
+    {
+      "role": "user",
+      "content": "i you to analyze this datset for me as a data scientist and give the besto trained model with reasoning"
+    }
+  ],
+  "current_goal": "i you to analyze this datset for me as a data scientist and give the besto trained model with reasoning",
+  "recent_decisions": [],
+  "unresolved_questions": []
+}

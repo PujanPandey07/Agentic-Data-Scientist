@@ -1,4 +1,5 @@
 # api/reports.py
+import math
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -11,6 +12,23 @@ from schema.reports import ChartInfo, ChartsResponse
 from api.chat import _get_owned_conversation
 
 router = APIRouter(prefix="/api/runs", tags=["Reports"])
+
+
+def _sanitize_nans(obj):
+    """Recursively replace NaN/inf float values with None, since Python's
+    json.dumps (via Starlette's JSONResponse) rejects them outright —
+    NaN/Infinity aren't valid JSON, even though Python's own float type
+    allows them. Without this, any report containing a NaN (e.g. a mean
+    computed over an all-missing column) crashes the endpoint with a 500."""
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    if isinstance(obj, dict):
+        return {k: _sanitize_nans(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_nans(v) for v in obj]
+    return obj
 
 
 def _path_to_static_url(file_path: str) -> str:
@@ -58,7 +76,11 @@ def _convert_report_image_paths(report: dict) -> dict:
         evaluation["artifacts"] = artifacts
         report["evaluation"] = evaluation
 
-    return report
+    # Must run LAST — after image paths are converted — since it walks
+    # the whole dict recursively and doesn't care about structure, only
+    # about catching any NaN/inf floats left in numeric fields (e.g.
+    # EDA's numerical_summary.mean) before this ever reaches json.dumps.
+    return _sanitize_nans(report)
 
 
 async def _get_snapshot_for_owned_thread(

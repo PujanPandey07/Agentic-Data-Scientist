@@ -13,6 +13,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from graphs.workflow import builder
 import aiosqlite
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -44,6 +45,17 @@ app = FastAPI(
     version="0.1.0",
     description="An Agentic AI Data Scientist built with LangGraph.",
     lifespan=lifespan,
+)
+
+# Allows the Vite dev server (different origin) to call this API with
+# credentials (needed for the httpOnly refresh-token cookie). Must be
+# an exact origin, not "*", since allow_credentials=True is set.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.mount("/static", StaticFiles(directory="outputs"), name="static")

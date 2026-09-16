@@ -5,7 +5,7 @@ from schema.model_selection import ModelSelectionPlan
 from prompts.model_selection import MODEL_SELECTION_PLANNER_PROMPT
 from utilis.llm_plan import invoke_with_repair
 from utilis.constraints import format_constraints
-from utilis.prompt_context import summarize_eda_report_for_prompt
+from utilis.prompt_context import summarize_eda_report_for_prompt, truncate_for_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -26,11 +26,11 @@ class ModelSelectionPlannerAgent:
 
         fe_section = ""
         if feature_engineering_report:
-            fe_section = f"\nFeature Engineering Report: {feature_engineering_report}"
+            fe_section = f"\nFeature Engineering Report: {truncate_for_prompt(feature_engineering_report)}"
 
         user_content = f"""User Query: {user_query}
 
-Dataset Summary: {dataset_summary}
+Dataset Summary: {truncate_for_prompt(dataset_summary)}
 
 EDA Report: {summarize_eda_report_for_prompt(eda_report)}{fe_section}{format_constraints(constraints)}
 
@@ -47,3 +47,6 @@ Generate the model selection plan now."""
             f"Model selection plan generated: {len(response.candidates)} candidates")
 
         return response
+
+
+model_selection_planner_agent = ModelSelectionPlannerAgent()

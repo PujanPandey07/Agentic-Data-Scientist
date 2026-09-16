@@ -5,6 +5,7 @@ from schema.feature_planner import FeatureEngineeringPlan
 from prompts.feature_eng_prompt import system_prompt as FEATURE_ENGINEERING_PLANNER_PROMPT
 from utilis.llm_plan import invoke_with_repair
 from utilis.constraints import format_constraints
+from utilis.prompt_context import summarize_eda_report_for_prompt, truncate_for_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ class FeatureEngineeringPlannerAgent:
 
         user_content = f"""User Query: {user_query}
 
-Dataset Summary: {dataset_summary}
+Dataset Summary: {truncate_for_prompt(dataset_summary)}
 EDA Report: {summarize_eda_report_for_prompt(eda_report)}{target_section}{format_constraints(constraints)}
 
 Generate the feature engineering plan now."""

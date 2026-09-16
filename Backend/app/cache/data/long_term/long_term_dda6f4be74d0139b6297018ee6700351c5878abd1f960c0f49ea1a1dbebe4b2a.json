@@ -1,0 +1,12 @@
+{
+  "memories": [
+    {
+      "memory_id": "d49d300468b6842c0da1d4711ffc26182578245c2ef41c6e9215d942252fcb6a",
+      "owner_id": "e7af27ad-949b-4fd2-b47b-088f6488dff8",
+      "topic": "latest_analysis_conclusion",
+      "content": "WARNING: the trained model did not fully converge during training. Reported scores may be unstable and not representative of the model's true performance \u2014 this is a different and more serious issue than overfitting. Common causes: unscaled features (especially for SVM/neural network models) or too few iterations. Performance needs improvement. Investigate data quality or model complexity.",
+      "importance": 0.75,
+      "updated_at": "2026-09-16T05:30:11.292727+00:00"
+    }
+  ]
+}

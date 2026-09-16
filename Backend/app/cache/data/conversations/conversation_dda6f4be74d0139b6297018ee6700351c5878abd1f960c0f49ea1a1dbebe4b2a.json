@@ -1,0 +1,21 @@
+{
+  "conversation_id": "e7af27ad-949b-4fd2-b47b-088f6488dff8",
+  "conversation_summary": "",
+  "recent_messages": [
+    {
+      "role": "user",
+      "content": "okay run the best classification model for the given dataset doing everything needed"
+    },
+    {
+      "role": "user",
+      "content": "sp where is the report"
+    },
+    {
+      "role": "user",
+      "content": "sp where is the report"
+    }
+  ],
+  "current_goal": "sp where is the report",
+  "recent_decisions": [],
+  "unresolved_questions": []
+}

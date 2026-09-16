@@ -1,0 +1,51 @@
+{
+  "rows": 4800,
+  "columns": 8,
+  "column_names": [
+    "id",
+    "title_x",
+    "keywords",
+    "overview",
+    "genres",
+    "vote_average",
+    "metadata_text",
+    "reviews"
+  ],
+  "data_types": {
+    "id": "int64",
+    "title_x": "str",
+    "keywords": "str",
+    "overview": "str",
+    "genres": "str",
+    "vote_average": "float64",
+    "metadata_text": "str",
+    "reviews": "str"
+  },
+  "numerical_columns": [
+    "id",
+    "vote_average"
+  ],
+  "categorical_columns": [
+    "title_x",
+    "keywords",
+    "overview",
+    "genres",
+    "metadata_text",
+    "reviews"
+  ],
+  "missing_values": {
+    "id": 0,
+    "title_x": 0,
+    "keywords": 0,
+    "overview": 0,
+    "genres": 0,
+    "vote_average": 0,
+    "metadata_text": 0,
+    "reviews": 0
+  },
+  "duplicate_rows": 0,
+  "memory_usage": "14241.47 KB",
+  "has_missing_values": false,
+  "has_duplicates": false,
+  "potential_target_columns": []
+}

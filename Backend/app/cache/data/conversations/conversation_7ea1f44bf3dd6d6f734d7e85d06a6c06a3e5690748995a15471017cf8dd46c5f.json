@@ -1,0 +1,17 @@
+{
+  "conversation_id": "a7fc83bd-e645-479a-a13f-7e28062893e1",
+  "conversation_summary": "",
+  "recent_messages": [
+    {
+      "role": "user",
+      "content": "okay give a general inference on this dataset"
+    },
+    {
+      "role": "user",
+      "content": "okay so what insights does this dataset gives from your view explain"
+    }
+  ],
+  "current_goal": "okay so what insights does this dataset gives from your view explain",
+  "recent_decisions": [],
+  "unresolved_questions": []
+}

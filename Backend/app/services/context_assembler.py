@@ -7,18 +7,18 @@ from services.short_term_memory import short_term_memory_manager
 class LLMContextAssembler:
     """Builds intentional LLM context without exposing GraphState."""
 
-    def assemble(
+    async def assemble(
         self,
         conversation_id: str,
         query: str,
         dataset_id: str | None = None,
     ) -> dict:
-        memory = short_term_memory_manager.get(conversation_id)
+        memory = await short_term_memory_manager.get(conversation_id)
         analysis = (
-            analysis_context_cache.get(dataset_id)
+            await analysis_context_cache.get(dataset_id)
             if dataset_id else None
         )
-        long_term = long_term_memory_manager.relevant(conversation_id, query)
+        long_term = await long_term_memory_manager.relevant(conversation_id, query)
 
         return {
             "conversation": self._conversation_context(memory),

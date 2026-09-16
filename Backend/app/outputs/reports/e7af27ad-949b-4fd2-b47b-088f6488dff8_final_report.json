@@ -1,0 +1,968 @@
+{
+  "generated_at": "2026-09-16T05:30:11.253215Z",
+  "user_query": "okay run the best classification model for the given dataset doing everything needed",
+  "dataset_id": "e7af27ad-949b-4fd2-b47b-088f6488dff8",
+  "target_column": "target",
+  "problem_type": "classification",
+  "pipeline_status": {
+    "completed_tasks": [
+      "cleaning",
+      "eda",
+      "visualization",
+      "feature_engineering",
+      "model_selection",
+      "hyperparameter_tuning",
+      "evaluation"
+    ],
+    "total_tasks": 7
+  },
+  "dataset_overview": {
+    "final_shape": [
+      302,
+      48
+    ],
+    "columns": [
+      "target",
+      "age_binned",
+      "chol_binned",
+      "oldpeak_binned",
+      "age_chol_multiply",
+      "age_trestbps_multiply",
+      "chol_thalach_multiply",
+      "oldpeak_exang_multiply",
+      "sex_0",
+      "sex_1",
+      "cp_0",
+      "cp_1",
+      "cp_2",
+      "cp_3",
+      "fbs_0",
+      "fbs_1",
+      "restecg_0",
+      "restecg_1",
+      "restecg_2",
+      "exang_0",
+      "exang_1",
+      "slope_0",
+      "slope_1",
+      "slope_2",
+      "ca_0",
+      "ca_1",
+      "ca_2",
+      "ca_3",
+      "ca_4",
+      "thal_0",
+      "thal_1",
+      "thal_2",
+      "thal_3",
+      "age^2",
+      "age trestbps",
+      "age chol",
+      "age thalach",
+      "age oldpeak",
+      "trestbps^2",
+      "trestbps chol",
+      "trestbps thalach",
+      "trestbps oldpeak",
+      "chol^2",
+      "chol thalach",
+      "chol oldpeak",
+      "thalach^2",
+      "thalach oldpeak",
+      "oldpeak^2"
+    ]
+  },
+  "cleaning": {
+    "original_rows": 303,
+    "final_rows": 302,
+    "duplicates_removed": 1,
+    "missing_values_remaining": 0
+  },
+  "eda": {
+    "shape": {
+      "rows": 302,
+      "columns": 14
+    },
+    "column_names": [
+      "age",
+      "sex",
+      "cp",
+      "trestbps",
+      "chol",
+      "fbs",
+      "restecg",
+      "thalach",
+      "exang",
+      "oldpeak",
+      "slope",
+      "ca",
+      "thal",
+      "target"
+    ],
+    "numerical_columns": [
+      "age",
+      "sex",
+      "cp",
+      "trestbps",
+      "chol",
+      "fbs",
+      "restecg",
+      "thalach",
+      "exang",
+      "oldpeak",
+      "slope",
+      "ca",
+      "thal",
+      "target"
+    ],
+    "categorical_columns": [],
+    "numerical_summary": {
+      "age": {
+        "count": 302.0,
+        "mean": 54.4205,
+        "std": 9.048,
+        "min": 29.0,
+        "25%": 48.0,
+        "50%": 55.5,
+        "75%": 61.0,
+        "max": 77.0
+      },
+      "sex": {
+        "count": 302.0,
+        "mean": 0.6821,
+        "std": 0.4664,
+        "min": 0.0,
+        "25%": 0.0,
+        "50%": 1.0,
+        "75%": 1.0,
+        "max": 1.0
+      },
+      "cp": {
+        "count": 302.0,
+        "mean": 0.9636,
+        "std": 1.032,
+        "min": 0.0,
+        "25%": 0.0,
+        "50%": 1.0,
+        "75%": 2.0,
+        "max": 3.0
+      },
+      "trestbps": {
+        "count": 302.0,
+        "mean": 131.6026,
+        "std": 17.5634,
+        "min": 94.0,
+        "25%": 120.0,
+        "50%": 130.0,
+        "75%": 140.0,
+        "max": 200.0
+      },
+      "chol": {
+        "count": 302.0,
+        "mean": 246.5,
+        "std": 51.7535,
+        "min": 126.0,
+        "25%": 211.0,
+        "50%": 240.5,
+        "75%": 274.75,
+        "max": 564.0
+      },
+      "fbs": {
+        "count": 302.0,
+        "mean": 0.149,
+        "std": 0.3567,
+        "min": 0.0,
+        "25%": 0.0,
+        "50%": 0.0,
+        "75%": 0.0,
+        "max": 1.0
+      },
+      "restecg": {
+        "count": 302.0,
+        "mean": 0.5265,
+        "std": 0.526,
+        "min": 0.0,
+        "25%": 0.0,
+        "50%": 1.0,
+        "75%": 1.0,
+        "max": 2.0
+      },
+      "thalach": {
+        "count": 302.0,
+        "mean": 149.5695,
+        "std": 22.9035,
+        "min": 71.0,
+        "25%": 133.25,
+        "50%": 152.5,
+        "75%": 166.0,
+        "max": 202.0
+      },
+      "exang": {
+        "count": 302.0,
+        "mean": 0.3278,
+        "std": 0.4702,
+        "min": 0.0,
+        "25%": 0.0,
+        "50%": 0.0,
+        "75%": 1.0,
+        "max": 1.0
+      },
+      "oldpeak": {
+        "count": 302.0,
+        "mean": 1.043,
+        "std": 1.1615,
+        "min": 0.0,
+        "25%": 0.0,
+        "50%": 0.8,
+        "75%": 1.6,
+        "max": 6.2
+      },
+      "slope": {
+        "count": 302.0,
+        "mean": 1.3974,
+        "std": 0.6163,
+        "min": 0.0,
+        "25%": 1.0,
+        "50%": 1.0,
+        "75%": 2.0,
+        "max": 2.0
+      },
+      "ca": {
+        "count": 302.0,
+        "mean": 0.7185,
+        "std": 1.0067,
+        "min": 0.0,
+        "25%": 0.0,
+        "50%": 0.0,
+        "75%": 1.0,
+        "max": 4.0
+      },
+      "thal": {
+        "count": 302.0,
+        "mean": 2.3146,
+        "std": 0.613,
+        "min": 0.0,
+        "25%": 2.0,
+        "50%": 2.0,
+        "75%": 3.0,
+        "max": 3.0
+      },
+      "target": {
+        "count": 302.0,
+        "mean": 0.543,
+        "std": 0.499,
+        "min": 0.0,
+        "25%": 0.0,
+        "50%": 1.0,
+        "75%": 1.0,
+        "max": 1.0
+      }
+    },
+    "categorical_summary": {},
+    "missing_values": {
+      "age": 0,
+      "sex": 0,
+      "cp": 0,
+      "trestbps": 0,
+      "chol": 0,
+      "fbs": 0,
+      "restecg": 0,
+      "thalach": 0,
+      "exang": 0,
+      "oldpeak": 0,
+      "slope": 0,
+      "ca": 0,
+      "thal": 0,
+      "target": 0
+    },
+    "correlation": {
+      "age": {
+        "age": 1.0,
+        "sex": -0.095,
+        "cp": -0.0631,
+        "trestbps": 0.2831,
+        "chol": 0.2072,
+        "fbs": 0.1195,
+        "restecg": -0.1116,
+        "thalach": -0.3952,
+        "exang": 0.0932,
+        "oldpeak": 0.206,
+        "slope": -0.1641,
+        "ca": 0.3023,
+        "thal": 0.0653,
+        "target": -0.2215
+      },
+      "sex": {
+        "age": -0.095,
+        "sex": 1.0,
+        "cp": -0.0517,
+        "trestbps": -0.0576,
+        "chol": -0.1956,
+        "fbs": 0.046,
+        "restecg": -0.0604,
+        "thalach": -0.0464,
+        "exang": 0.1435,
+        "oldpeak": 0.0983,
+        "slope": -0.033,
+        "ca": 0.1131,
+        "thal": 0.2115,
+        "target": -0.2836
+      },
+      "cp": {
+        "age": -0.0631,
+        "sex": -0.0517,
+        "cp": 1.0,
+        "trestbps": 0.0465,
+        "chol": -0.0727,
+        "fbs": 0.096,
+        "restecg": 0.0416,
+        "thalach": 0.2934,
+        "exang": -0.3929,
+        "oldpeak": -0.1467,
+        "slope": 0.1169,
+        "ca": -0.1954,
+        "thal": -0.1604,
+        "target": 0.4321
+      },
+      "trestbps": {
+        "age": 0.2831,
+        "sex": -0.0576,
+        "cp": 0.0465,
+        "trestbps": 1.0,
+        "chol": 0.1253,
+        "fbs": 0.1781,
+        "restecg": -0.1154,
+        "thalach": -0.048,
+        "exang": 0.0685,
+        "oldpeak": 0.1946,
+        "slope": -0.1229,
+        "ca": 0.0992,
+        "thal": 0.0629,
+        "target": -0.1463
+      },
+      "chol": {
+        "age": 0.2072,
+        "sex": -0.1956,
+        "cp": -0.0727,
+        "trestbps": 0.1253,
+        "chol": 1.0,
+        "fbs": 0.0114,
+        "restecg": -0.1476,
+        "thalach": -0.0053,
+        "exang": 0.0641,
+        "oldpeak": 0.0501,
+        "slope": 0.0004,
+        "ca": 0.0869,
+        "thal": 0.0968,
+        "target": -0.0814
+      },
+      "fbs": {
+        "age": 0.1195,
+        "sex": 0.046,
+        "cp": 0.096,
+        "trestbps": 0.1781,
+        "chol": 0.0114,
+        "fbs": 1.0,
+        "restecg": -0.0831,
+        "thalach": -0.0072,
+        "exang": 0.0247,
+        "oldpeak": 0.0045,
+        "slope": -0.0587,
+        "ca": 0.1449,
+        "thal": -0.0328,
+        "target": -0.0268
+      },
+      "restecg": {
+        "age": -0.1116,
+        "sex": -0.0604,
+        "cp": 0.0416,
+        "trestbps": -0.1154,
+        "chol": -0.1476,
+        "fbs": -0.0831,
+        "restecg": 1.0,
+        "thalach": 0.0412,
+        "exang": -0.0688,
+        "oldpeak": -0.0563,
+        "slope": 0.0904,
+        "ca": -0.0831,
+        "thal": -0.0105,
+        "target": 0.1349
+      },
+      "thalach": {
+        "age": -0.3952,
+        "sex": -0.0464,
+        "cp": 0.2934,
+        "trestbps": -0.048,
+        "chol": -0.0053,
+        "fbs": -0.0072,
+        "restecg": 0.0412,
+        "thalach": 1.0,
+        "exang": -0.3774,
+        "oldpeak": -0.3422,
+        "slope": 0.3848,
+        "ca": -0.2283,
+        "thal": -0.0949,
+        "target": 0.42
+      },
+      "exang": {
+        "age": 0.0932,
+        "sex": 0.1435,
+        "cp": -0.3929,
+        "trestbps": 0.0685,
+        "chol": 0.0641,
+        "fbs": 0.0247,
+        "restecg": -0.0688,
+        "thalach": -0.3774,
+        "exang": 1.0,
+        "oldpeak": 0.2868,
+        "slope": -0.2561,
+        "ca": 0.1254,
+        "thal": 0.2058,
+        "target": -0.4356
+      },
+      "oldpeak": {
+        "age": 0.206,
+        "sex": 0.0983,
+        "cp": -0.1467,
+        "trestbps": 0.1946,
+        "chol": 0.0501,
+        "fbs": 0.0045,
+        "restecg": -0.0563,
+        "thalach": -0.3422,
+        "exang": 0.2868,
+        "oldpeak": 1.0,
+        "slope": -0.5763,
+        "ca": 0.2366,
+        "thal": 0.2091,
+        "target": -0.4291
+      },
+      "slope": {
+        "age": -0.1641,
+        "sex": -0.033,
+        "cp": 0.1169,
+        "trestbps": -0.1229,
+        "chol": 0.0004,
+        "fbs": -0.0587,
+        "restecg": 0.0904,
+        "thalach": 0.3848,
+        "exang": -0.2561,
+        "oldpeak": -0.5763,
+        "slope": 1.0,
+        "ca": -0.0922,
+        "thal": -0.1033,
+        "target": 0.3439
+      },
+      "ca": {
+        "age": 0.3023,
+        "sex": 0.1131,
+        "cp": -0.1954,
+        "trestbps": 0.0992,
+        "chol": 0.0869,
+        "fbs": 0.1449,
+        "restecg": -0.0831,
+        "thalach": -0.2283,
+        "exang": 0.1254,
+        "oldpeak": 0.2366,
+        "slope": -0.0922,
+        "ca": 1.0,
+        "thal": 0.1601,
+        "target": -0.409
+      },
+      "thal": {
+        "age": 0.0653,
+        "sex": 0.2115,
+        "cp": -0.1604,
+        "trestbps": 0.0629,
+        "chol": 0.0968,
+        "fbs": -0.0328,
+        "restecg": -0.0105,
+        "thalach": -0.0949,
+        "exang": 0.2058,
+        "oldpeak": 0.2091,
+        "slope": -0.1033,
+        "ca": 0.1601,
+        "thal": 1.0,
+        "target": -0.3431
+      },
+      "target": {
+        "age": -0.2215,
+        "sex": -0.2836,
+        "cp": 0.4321,
+        "trestbps": -0.1463,
+        "chol": -0.0814,
+        "fbs": -0.0268,
+        "restecg": 0.1349,
+        "thalach": 0.42,
+        "exang": -0.4356,
+        "oldpeak": -0.4291,
+        "slope": 0.3439,
+        "ca": -0.409,
+        "thal": -0.3431,
+        "target": 1.0
+      }
+    }
+  },
+  "visualization": {
+    "num_charts": 4,
+    "charts": [
+      {
+        "chart_type": "heatmap",
+        "columns": [
+          "age",
+          "sex",
+          "cp",
+          "trestbps",
+          "chol",
+          "fbs",
+          "restecg",
+          "thalach",
+          "exang",
+          "oldpeak",
+          "slope",
+          "ca",
+          "thal",
+          "target"
+        ],
+        "path": "outputs\\charts\\e7af27ad-949b-4fd2-b47b-088f6488dff8\\correlation_heatmap.png"
+      },
+      {
+        "chart_type": "box",
+        "x_column": "target",
+        "y_column": "age",
+        "path": "outputs\\charts\\e7af27ad-949b-4fd2-b47b-088f6488dff8\\age_by_target_box.png"
+      },
+      {
+        "chart_type": "box",
+        "x_column": "target",
+        "y_column": "chol",
+        "path": "outputs\\charts\\e7af27ad-949b-4fd2-b47b-088f6488dff8\\chol_by_target_box.png"
+      },
+      {
+        "chart_type": "bar",
+        "x_column": "target",
+        "group_by": null,
+        "path": "outputs\\charts\\e7af27ad-949b-4fd2-b47b-088f6488dff8\\target_bar_chart.png"
+      }
+    ]
+  },
+  "feature_engineering": {
+    "original_train_shape": [
+      241,
+      14
+    ],
+    "original_test_shape": [
+      61,
+      14
+    ],
+    "final_train_shape": [
+      241,
+      48
+    ],
+    "final_test_shape": [
+      61,
+      48
+    ],
+    "strategy": "aggressive",
+    "steps_executed": 12,
+    "steps_failed": 0,
+    "step_details": [
+      {
+        "action": "drop_low_variance",
+        "columns": [
+          "age",
+          "sex",
+          "cp",
+          "trestbps",
+          "chol",
+          "fbs",
+          "restecg",
+          "thalach",
+          "exang",
+          "oldpeak",
+          "slope",
+          "ca",
+          "thal"
+        ],
+        "status": "success",
+        "details": "Dropped low-variance columns based on train data: []",
+        "target_column_excluded": false
+      },
+      {
+        "action": "drop_high_correlation",
+        "columns": [
+          "age",
+          "sex",
+          "cp",
+          "trestbps",
+          "chol",
+          "fbs",
+          "restecg",
+          "thalach",
+          "exang",
+          "oldpeak",
+          "slope",
+          "ca",
+          "thal"
+        ],
+        "status": "success",
+        "details": "Dropped highly correlated columns based on train data: []",
+        "target_column_excluded": false
+      },
+      {
+        "action": "log_transform",
+        "columns": [
+          "chol",
+          "oldpeak"
+        ],
+        "status": "success",
+        "details": "Log1p transformed ['chol', 'oldpeak']",
+        "target_column_excluded": false
+      },
+      {
+        "action": "sqrt_transform",
+        "columns": [
+          "trestbps",
+          "thalach"
+        ],
+        "status": "success",
+        "details": "Sqrt transformed ['trestbps', 'thalach']",
+        "target_column_excluded": false
+      },
+      {
+        "action": "binning",
+        "columns": [
+          "age",
+          "chol",
+          "oldpeak"
+        ],
+        "status": "success",
+        "details": "Binned ['age', 'chol', 'oldpeak'] using train-derived bin edges",
+        "target_column_excluded": false
+      },
+      {
+        "action": "create_interaction",
+        "columns": [
+          "age",
+          "chol"
+        ],
+        "status": "success",
+        "details": "Created interaction column age_chol_multiply",
+        "target_column_excluded": false
+      },
+      {
+        "action": "create_interaction",
+        "columns": [
+          "age",
+          "trestbps"
+        ],
+        "status": "success",
+        "details": "Created interaction column age_trestbps_multiply",
+        "target_column_excluded": false
+      },
+      {
+        "action": "create_interaction",
+        "columns": [
+          "chol",
+          "thalach"
+        ],
+        "status": "success",
+        "details": "Created interaction column chol_thalach_multiply",
+        "target_column_excluded": false
+      },
+      {
+        "action": "create_interaction",
+        "columns": [
+          "oldpeak",
+          "exang"
+        ],
+        "status": "success",
+        "details": "Created interaction column oldpeak_exang_multiply",
+        "target_column_excluded": false
+      },
+      {
+        "action": "one_hot_encode",
+        "columns": [
+          "sex",
+          "cp",
+          "fbs",
+          "restecg",
+          "exang",
+          "slope",
+          "ca",
+          "thal"
+        ],
+        "status": "success",
+        "details": "One-hot encoded ['sex', 'cp', 'fbs', 'restecg', 'exang', 'slope', 'ca', 'thal'] using train categories only",
+        "target_column_excluded": false
+      },
+      {
+        "action": "create_polynomial",
+        "columns": [
+          "age",
+          "trestbps",
+          "chol",
+          "thalach",
+          "oldpeak"
+        ],
+        "status": "success",
+        "details": "Polynomial degree=2 fitted on train data only for ['age', 'trestbps', 'chol', 'thalach', 'oldpeak']",
+        "target_column_excluded": false
+      },
+      {
+        "action": "standard_scale",
+        "columns": [
+          "age",
+          "trestbps",
+          "chol",
+          "thalach",
+          "oldpeak",
+          "age_chol",
+          "age_trestbps",
+          "chol_thalach",
+          "oldpeak_exang",
+          "age_bin",
+          "chol_bin",
+          "oldpeak_bin"
+        ],
+        "status": "success",
+        "details": "No numeric columns found to scale, skipped",
+        "target_column_excluded": false
+      }
+    ],
+    "columns_added": [
+      "age_binned",
+      "chol_binned",
+      "oldpeak_binned",
+      "age_chol_multiply",
+      "age_trestbps_multiply",
+      "chol_thalach_multiply",
+      "oldpeak_exang_multiply",
+      "sex_0",
+      "sex_1",
+      "cp_0",
+      "cp_1",
+      "cp_2",
+      "cp_3",
+      "fbs_0",
+      "fbs_1",
+      "restecg_0",
+      "restecg_1",
+      "restecg_2",
+      "exang_0",
+      "exang_1",
+      "slope_0",
+      "slope_1",
+      "slope_2",
+      "ca_0",
+      "ca_1",
+      "ca_2",
+      "ca_3",
+      "ca_4",
+      "thal_0",
+      "thal_1",
+      "thal_2",
+      "thal_3",
+      "age^2",
+      "age trestbps",
+      "age chol",
+      "age thalach",
+      "age oldpeak",
+      "trestbps^2",
+      "trestbps chol",
+      "trestbps thalach",
+      "trestbps oldpeak",
+      "chol^2",
+      "chol thalach",
+      "chol oldpeak",
+      "thalach^2",
+      "thalach oldpeak",
+      "oldpeak^2"
+    ],
+    "columns_removed": [
+      "age",
+      "trestbps",
+      "chol",
+      "thalach",
+      "oldpeak"
+    ],
+    "warnings": [
+      "Aggressive plan increases dimensionality and overfitting risk; consider feature selection or regularization.",
+      "All scaling and transformation statistics should be fitted on training data only to avoid data leakage."
+    ],
+    "notes": [
+      "User requested the best classification model with full preprocessing; aggressive strategy applied.",
+      "Categorical-like integer columns (sex, cp, fbs, restecg, exang, slope, ca, thal) are one-hot encoded.",
+      "Log transform applied to highly right\u2011skewed features (chol, oldpeak).",
+      "Square\u2011root transform applied to moderately skewed features (trestbps, thalach).",
+      "Quantile binning creates ordinal bins for age, chol, and oldpeak to capture non\u2011linear effects.",
+      "Interaction terms generated for domain\u2011relevant pairs.",
+      "Polynomial features (degree 2) added after removing highly correlated columns.",
+      "Standard scaling applied for distance\u2011based models."
+    ],
+    "target_column_guard_triggered": 0
+  },
+  "training": {
+    "strategy": "standard",
+    "sample_size": null,
+    "used_sampling": false,
+    "full_dataset_shape": [
+      241,
+      47
+    ],
+    "sample_shape": [
+      241,
+      47
+    ],
+    "cv_folds": 5,
+    "scoring_metric": "accuracy",
+    "time_budget_minutes": 10,
+    "time_spent_seconds": 12.28,
+    "candidates_results": [
+      {
+        "algorithm": "logistic_regression",
+        "status": "success",
+        "mean_cv_score": 0.8343537414965987,
+        "std_cv_score": 0.06186398354150261,
+        "cv_scores": [
+          0.7551020408163265,
+          0.8125,
+          0.7916666666666666,
+          0.8958333333333334,
+          0.9166666666666666
+        ],
+        "estimated_time_seconds": 5,
+        "actual_time_seconds": 4.8,
+        "hyperparams": {
+          "C": 1,
+          "max_iter": 1000,
+          "solver": "lbfgs"
+        },
+        "reason": "Fast baseline for binary classification. Works with the one-hot and polynomial features after scaling (even though scaling was skipped, logistic regression can still handle numeric ranges). With ~48 features and 302 rows, training is trivial and provides an accuracy floor.",
+        "converged": false
+      },
+      {
+        "algorithm": "random_forest",
+        "status": "success",
+        "mean_cv_score": 0.7967687074829932,
+        "std_cv_score": 0.023388218604549444,
+        "cv_scores": [
+          0.7755102040816326,
+          0.7708333333333334,
+          0.7916666666666666,
+          0.8333333333333334,
+          0.8125
+        ],
+        "estimated_time_seconds": 10,
+        "actual_time_seconds": 3.05,
+        "hyperparams": {
+          "max_depth": 5,
+          "n_estimators": 100,
+          "random_state": 42
+        },
+        "reason": "Tree\u2011based model handles mixed one\u2011hot, binned, interaction and polynomial features without needing further preprocessing. Small depth limits over\u2011fitting on the tiny dataset while still capturing non\u2011linear patterns observed in the EDA.",
+        "converged": true
+      },
+      {
+        "algorithm": "xgboost",
+        "status": "success",
+        "mean_cv_score": 0.805187074829932,
+        "std_cv_score": 0.03482908494399479,
+        "cv_scores": [
+          0.7551020408163265,
+          0.7916666666666666,
+          0.8333333333333334,
+          0.7916666666666666,
+          0.8541666666666666
+        ],
+        "estimated_time_seconds": 15,
+        "actual_time_seconds": 4.43,
+        "hyperparams": {
+          "eval_metric": "logloss",
+          "learning_rate": 0.1,
+          "max_depth": 3,
+          "n_estimators": 100,
+          "objective": "binary:logistic",
+          "random_state": 42,
+          "verbosity": 0
+        },
+        "reason": "Gradient\u2011boosted trees often outperform single random forests on small, high\u2011dimensional tabular data. With the engineered interactions and polynomial terms, XGBoost can exploit subtle relationships while remaining fast on <1K rows.",
+        "converged": true
+      }
+    ],
+    "best_algorithm": "logistic_regression",
+    "best_mean_cv_score": 0.83435,
+    "best_hyperparams": {
+      "C": 1,
+      "max_iter": 1000,
+      "solver": "lbfgs"
+    },
+    "best_reason": "Fast baseline for binary classification. Works with the one-hot and polynomial features after scaling (even though scaling was skipped, logistic regression can still handle numeric ranges). With ~48 features and 302 rows, training is trivial and provides an accuracy floor.",
+    "forced_algorithm": null,
+    "forced_override_applied": false,
+    "retrain_note": "Best model trained on full dataset (no sampling needed).",
+    "final_model_converged": false,
+    "notes": [
+      "Excluded SVM (rbf and linear) because the aggressive feature engineering created many one\u2011hot and polynomial columns, leading to high dimensionality that can make kernel SVM slow and linear SVM prone to over\u2011fitting without strong regularization.",
+      "Excluded neural_network_mlp because dataset size (<1K) is insufficient for deep learning to generalize reliably.",
+      "Excluded LightGBM to keep candidate count within the 3\u2011model limit; XGBoost provides comparable performance."
+    ],
+    "model_path": "outputs/models/e7af27ad-949b-4fd2-b47b-088f6488dff8_best_model.pkl"
+  },
+  "hyperparameter_tuning": {
+    "original_algorithm": "logistic_regression",
+    "best_trial_score": 0.7179,
+    "best_params": {
+      "C": 9.176639998129893,
+      "l1_ratio": 0.13014747373098512
+    },
+    "num_trials_completed": 20,
+    "trials_with_convergence_warnings": 0,
+    "final_model_converged": false,
+    "time_seconds": 26.65,
+    "tuned_model_path": "outputs/models/e7af27ad-949b-4fd2-b47b-088f6488dff8_tuned_model.pkl",
+    "param_importance": {
+      "C": 0.8049,
+      "l1_ratio": 0.1951
+    }
+  },
+  "evaluation": {
+    "problem_type": "classification",
+    "num_samples": 61,
+    "num_features": 47,
+    "metrics": {
+      "accuracy": 0.67213,
+      "precision_macro": 0.67117,
+      "precision_weighted": 0.67154,
+      "recall_macro": 0.6645,
+      "recall_weighted": 0.67213,
+      "f1_macro": 0.66484,
+      "f1_weighted": 0.66889
+    },
+    "artifacts": {
+      "confusion_matrix_path": "outputs/evaluation/e7af27ad-949b-4fd2-b47b-088f6488dff8/confusion_matrix.png",
+      "confusion_matrix_values": [
+        [
+          16,
+          12
+        ],
+        [
+          8,
+          25
+        ]
+      ],
+      "labels": [
+        0,
+        1
+      ],
+      "learning_curve_path": "outputs/evaluation/e7af27ad-949b-4fd2-b47b-088f6488dff8/learning_curve.png"
+    }
+  },
+  "conclusions": {
+    "best_model": "logistic_regression",
+    "cv_score": 0.83435,
+    "final_accuracy": 0.67213,
+    "final_f1": 0.66889,
+    "recommendation": "WARNING: the trained model did not fully converge during training. Reported scores may be unstable and not representative of the model's true performance \u2014 this is a different and more serious issue than overfitting. Common causes: unscaled features (especially for SVM/neural network models) or too few iterations. Performance needs improvement. Investigate data quality or model complexity.",
+    "convergence_warning": "WARNING: the trained model did not fully converge during training. Reported scores may be unstable and not representative of the model's true performance \u2014 this is a different and more serious issue than overfitting. Common causes: unscaled features (especially for SVM/neural network models) or too few iterations."
+  }
+}

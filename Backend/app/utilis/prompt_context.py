@@ -11,6 +11,36 @@ MAX_CATEGORICAL_COLUMNS_DETAILED = 20
 MAX_NUMERICAL_COLUMNS_DETAILED = 30
 
 
+def truncate_for_prompt(obj, max_list_items: int = 15, max_dict_keys: int = 25):
+    """Truncate an object to a size that is safe for inclusion in an LLM prompt."""
+    if hasattr(obj, "model_dump"):
+        obj = obj.model_dump()
+    """Generic, schema-agnostic size cap for ANY object about to be
+    inserted into an LLM prompt — unlike summarize_eda_report_for_prompt
+    (which knows eda_report's exact shape), this works blind: it just
+    bounds how many list items / dict keys are shown at each level,
+    recursively. Use this for objects whose internal structure isn't
+    known/stable here (dataset_summary, feature_engineering_report),
+    so a wide dataset or a long feature-engineering plan can't blow
+    past the token limit no matter what shape it takes.
+    """
+    if isinstance(obj, dict):
+        items = list(obj.items())[:max_dict_keys]
+        result = {k: truncate_for_prompt(
+            v, max_list_items, max_dict_keys) for k, v in items}
+        if len(obj) > max_dict_keys:
+            result["_truncated"] = f"{len(obj) - max_dict_keys} more keys omitted for brevity"
+        return result
+    if isinstance(obj, list):
+        truncated = [truncate_for_prompt(
+            v, max_list_items, max_dict_keys) for v in obj[:max_list_items]]
+        if len(obj) > max_list_items:
+            truncated.append(
+                f"...{len(obj) - max_list_items} more items omitted for brevity")
+        return truncated
+    return obj
+
+
 def summarize_eda_report_for_prompt(eda_report: dict) -> dict:
     """Cap an eda_report's size before it's inserted into an LLM prompt.
     Keeps the shape recognizable to the LLM but bounds the worst-case

@@ -830,7 +830,7 @@ async def direct_answer_node(state):
             context = ""
 
     if conversation_id:
-        assembled_context = llm_context_assembler.assemble(
+        assembled_context = await llm_context_assembler.assemble(
             conversation_id,
             state.get("user_query", ""),
             state.get("dataset_id"),

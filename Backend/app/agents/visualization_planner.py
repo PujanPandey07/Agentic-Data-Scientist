@@ -1,4 +1,5 @@
 # agents/visualization_planner.py
+from utilis.prompt_context import summarize_eda_report_for_prompt, truncate_for_prompt
 import logging
 from schema.visualization_plan import VisualizationPlanResponse
 from prompts.visualization_prompt import visualization_prompt
@@ -38,8 +39,7 @@ User Query:
 {user_query}
 
 Dataset Summary:
-{dataset_summary}
-
+{truncate_for_prompt(dataset_summary)}
 EDA Report:
 {summarize_eda_report_for_prompt(eda_report)}{format_constraints(constraints)}
 """,

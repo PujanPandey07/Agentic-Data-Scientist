@@ -1,0 +1,142 @@
+{
+  "dataset_id": "a7fc83bd-e645-479a-a13f-7e28062893e1",
+  "generated_at": "2026-09-16T08:35:11.198295Z",
+  "dataset": {
+    "rows": 200,
+    "columns": 2,
+    "column_names": [
+      "cgpa",
+      "package"
+    ],
+    "data_types": {
+      "cgpa": "float64",
+      "package": "float64"
+    },
+    "numerical_columns": [
+      "cgpa",
+      "package"
+    ],
+    "categorical_columns": [],
+    "missing_values": {
+      "cgpa": 0,
+      "package": 0
+    },
+    "duplicate_rows": 0,
+    "memory_usage": "3.25 KB",
+    "has_missing_values": false,
+    "has_duplicates": false,
+    "potential_target_columns": [],
+    "target_column": "N/A",
+    "problem_type": "unknown",
+    "final_overview": {
+      "final_shape": [
+        200,
+        2
+      ],
+      "columns": [
+        "cgpa",
+        "package"
+      ]
+    }
+  },
+  "cleaning": {
+    "original_rows": 200,
+    "final_rows": 200,
+    "duplicates_removed": 0,
+    "missing_values_remaining": 0
+  },
+  "eda": {
+    "shape": {
+      "rows": 200,
+      "columns": 2
+    },
+    "column_names": [
+      "cgpa",
+      "package"
+    ],
+    "numerical_columns": [
+      "cgpa",
+      "package"
+    ],
+    "categorical_columns": [],
+    "numerical_summary": {
+      "cgpa": {
+        "count": 200.0,
+        "mean": 6.9905,
+        "std": 1.0694,
+        "min": 4.26,
+        "25%": 6.19,
+        "50%": 6.965,
+        "75%": 7.7375,
+        "max": 9.58
+      },
+      "package": {
+        "count": 200.0,
+        "mean": 2.9961,
+        "std": 0.6916,
+        "min": 1.37,
+        "25%": 2.4875,
+        "50%": 2.995,
+        "75%": 3.4925,
+        "max": 4.62
+      }
+    },
+    "categorical_summary": {},
+    "missing_values": {
+      "cgpa": 0,
+      "package": 0
+    },
+    "correlation": {
+      "cgpa": {
+        "cgpa": 1.0,
+        "package": 0.8807
+      },
+      "package": {
+        "cgpa": 0.8807,
+        "package": 1.0
+      }
+    }
+  },
+  "visualization": {
+    "num_charts": 4,
+    "charts": [
+      {
+        "chart_type": "scatter",
+        "x_column": "cgpa",
+        "y_column": "package",
+        "group_by": null,
+        "path": "outputs\\charts\\a7fc83bd-e645-479a-a13f-7e28062893e1\\cgpa_vs_package_scatter.png"
+      },
+      {
+        "chart_type": "histogram",
+        "x_column": "cgpa",
+        "path": "outputs\\charts\\a7fc83bd-e645-479a-a13f-7e28062893e1\\cgpa_histogram.png"
+      },
+      {
+        "chart_type": "histogram",
+        "x_column": "package",
+        "path": "outputs\\charts\\a7fc83bd-e645-479a-a13f-7e28062893e1\\package_histogram.png"
+      },
+      {
+        "chart_type": "heatmap",
+        "columns": [
+          "cgpa",
+          "package"
+        ],
+        "path": "outputs\\charts\\a7fc83bd-e645-479a-a13f-7e28062893e1\\correlation_heatmap.png"
+      }
+    ]
+  },
+  "feature_engineering": null,
+  "model_selection": null,
+  "training": null,
+  "hyperparameter_tuning": null,
+  "evaluation": null,
+  "conclusions": {
+    "best_model": "N/A",
+    "cv_score": "N/A",
+    "final_accuracy": null,
+    "final_f1": null,
+    "recommendation": "No model training was part of this run \u2014 see cleaning/EDA/visualization results above."
+  }
+}

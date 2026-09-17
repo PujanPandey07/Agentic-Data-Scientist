@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import axiosInstance from "../api/axiosstance";
-import jsPDF from "jspdf";
-import { formatReportAsMarkdown } from "../utils/FormatReport";
+import { cleanMarkdown, formatReportAsMarkdown } from "../utils/FormatReport";
 
 const API_BASE = "http://127.0.0.1:8000";
 
@@ -39,8 +39,6 @@ function ArtifactPanel({ threadId, onClose }) {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    setLoading(true);
-    setErrorMsg("");
     Promise.all([
       axiosInstance.get(`/api/runs/${threadId}/report`),
       axiosInstance.get(`/api/runs/${threadId}/charts`),
@@ -74,38 +72,31 @@ function ArtifactPanel({ threadId, onClose }) {
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }
-
   async function downloadPdf() {
     setPdfLoading(true);
     try {
-      const doc = new jsPDF();
+      const { default: JsPDF } = await import("jspdf");
+      const doc = new JsPDF();
       let y = 20;
-      doc.setFontSize(16);
-      doc.text("AI Data Scientist — Report", 10, y);
-      y += 10;
-      doc.setFontSize(10);
-      doc.text(`Run: ${threadId}`, 10, y);
-      y += 10;
 
-      if (report.evaluation) {
-        doc.setFontSize(12);
-        doc.text("Evaluation", 10, y);
-        y += 8;
-        doc.setFontSize(9);
-        for (const [key, value] of Object.entries(report.evaluation)) {
-          if (typeof value === "object") continue;
-          doc.text(`${key}: ${value}`, 10, y);
-          y += 6;
-          if (y > 270) { doc.addPage(); y = 20; }
-        }
+      // Render the FULL markdown report as plain text — strip markdown
+      // syntax characters since jsPDF has no markdown renderer, then
+      // wrap and paginate. This covers every section, not just evaluation.
+      const plainText = markdown.replace(/[#*`|]/g, "");
+      const lines = doc.splitTextToSize(plainText, 180);
+      doc.setFontSize(9);
+      for (const line of lines) {
+        if (y > 280) { doc.addPage(); y = 20; }
+        doc.text(line, 10, y);
+        y += 5;
       }
 
       for (const chart of charts) {
-        if (y > 200) { doc.addPage(); y = 20; }
+        doc.addPage();
+        y = 20;
         try {
           const { dataUrl, format } = await imageUrlToDataUrl(`${API_BASE}${chart.url}`);
           doc.addImage(dataUrl, format, 10, y, 180, 100);
-          y += 110;
         } catch {
           // skip a chart that fails to convert rather than aborting the whole PDF
         }
@@ -116,11 +107,10 @@ function ArtifactPanel({ threadId, onClose }) {
       setPdfLoading(false);
     }
   }
-
   const modelLikelyTrained = Boolean(report?.evaluation);
 
   return (
-    <div className="w-[440px] shrink-0 border-l border-muted/20 bg-white h-screen flex flex-col">
+    <div className="w-[440px] shrink-0 border-l border-muted/20 bg-white h-full flex flex-col">
       <div className="flex items-center justify-between px-4 py-3 border-b border-muted/20">
         <p className="font-serif text-ink">Report</p>
         <button onClick={onClose} className="text-muted hover:text-ink text-sm">✕</button>
@@ -143,8 +133,10 @@ function ArtifactPanel({ threadId, onClose }) {
         {errorMsg && <p className="text-clay text-sm">{errorMsg}</p>}
 
         {!loading && !errorMsg && tab === "report" && report && (
-          <article className="prose prose-sm max-w-none prose-headings:font-serif prose-headings:text-ink prose-p:text-ink prose-li:text-ink prose-strong:text-ink">
-            <ReactMarkdown>{markdown}</ReactMarkdown>
+          <article className="prose prose-sm max-w-none prose-headings:font-serif prose-headings:text-ink prose-p:text-ink prose-li:text-ink prose-strong:text-ink prose-table:whitespace-nowrap">
+            <div className="overflow-x-auto">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{cleanMarkdown(markdown)}</ReactMarkdown>
+            </div>
           </article>
         )}
 

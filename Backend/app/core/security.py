@@ -11,11 +11,12 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
 
 
-# Secret key MUST come from an environment variable, never hardcoded —
-# anyone who has this value can forge valid tokens for any user.
-SECRET_KEY = os.environ["JWT_SECRET_KEY"]
-# core/security.py — add near the top, with the other constants
 IS_PRODUCTION = os.environ.get("ENVIRONMENT", "development") == "production"
+SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
+if not SECRET_KEY:
+    if IS_PRODUCTION:
+        raise RuntimeError("JWT_SECRET_KEY environment variable is required in production.")
+    SECRET_KEY = "insecure_dev_secret_key_change_me_in_production"
 ALGORITHM = "HS256"
 
 # Short-lived — kept in the client's memory, never persisted, so a short

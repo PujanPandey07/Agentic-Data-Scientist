@@ -1,0 +1,12 @@
+{
+  "memories": [
+    {
+      "memory_id": "a6c3facf09262731b559cc0f05f2c56b23cfcc47ba0af8cd338a115feed5bbc1",
+      "owner_id": "202ba4ca-77c2-4130-a8ec-d292e4142135",
+      "topic": "latest_analysis_conclusion",
+      "content": "Performance needs improvement. Investigate data quality or model complexity.",
+      "importance": 0.75,
+      "updated_at": "2026-09-16T16:16:46.954879+00:00"
+    }
+  ]
+}

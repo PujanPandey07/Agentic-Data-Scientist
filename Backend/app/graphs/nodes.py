@@ -20,6 +20,7 @@ from services.long_term_memory import long_term_memory_manager
 from services.context_assembler import llm_context_assembler
 from services.evaluation import EvaluationService
 from services.trainning import TrainingService
+from services.runtime_state import runtime_state_store
 from agents.model_selection_planner import ModelSelectionPlannerAgent
 import os
 from services.feature_engineering import FeatureEngineeringService
@@ -100,29 +101,46 @@ def _clear_stale_fields(state, from_stage: str):
             f"Cleared stale fields for stages {stages_to_clear}: {cleared}")
 
 
+def _runtime_dataframe(state):
+    dataframe = state.get("dataframe")
+    if dataframe is not None:
+        return dataframe
+    return runtime_state_store.get_dataset(state.get("dataset_id"))
+
+
+def _set_runtime_dataframe(state, dataframe):
+    dataset_id = state.get("dataset_id")
+    if dataset_id:
+        runtime_state_store.set_dataset(dataset_id, dataframe)
+    state["dataframe"] = None
+
+
+def _runtime_train_test(state):
+    train_df = state.get("train_df")
+    test_df = state.get("test_df")
+    if train_df is not None or test_df is not None:
+        return train_df, test_df
+    dataset_id = state.get("dataset_id")
+    return runtime_state_store.get_train_test(dataset_id)
+
+
+def _set_runtime_train_test(state, train_df, test_df):
+    dataset_id = state.get("dataset_id")
+    if dataset_id:
+        runtime_state_store.set_train_test(dataset_id, train_df, test_df)
+    state["train_df"] = None
+    state["test_df"] = None
+
+
 def _ensure_train_test_split(state, test_size: float = 0.2, random_state: int = 42):
     """Stratified (classification) or plain (regression) 80/20 train/test
-    split, cached in state as train_df/test_df. TrainingService and
-    HyperparameterTuningService now only ever see train_df — test_df stays
-    untouched until evaluation_node scores the FINAL tuned model against it.
-
-    Cache invalidation: cleaning_node and feature_engineering_node clear
-    train_df/test_df whenever they change state["dataframe"], so this
-    regenerates automatically after any upstream data change. A refine_step
-    that only targets model_selection/hyperparameter_tuning reuses the
-    existing split untouched — correct, since the data didn't change.
-
-    Known limitation: feature_engineering_node still fits things like
-    scalers/correlation thresholds on the FULL dataframe before this split
-    happens, so scaling statistics technically see the test set's
-    distribution too. This fixes evaluation leakage (scoring on unseen
-    rows), not that subtler feature-engineering-level leakage — a bigger
-    restructuring, not addressed here.
+    split, stored in the runtime cache rather than the checkpointed graph state.
     """
-    if state.get("train_df") is not None and state.get("test_df") is not None:
+    train_df, test_df = _runtime_train_test(state)
+    if train_df is not None and test_df is not None:
         return
 
-    df = state.get("dataframe")
+    df = _runtime_dataframe(state)
     target_column = state.get("target_column")
     analysis_plan = state.get("analysis_plan")
     problem_type = analysis_plan.problem_type if analysis_plan else "classification"
@@ -148,12 +166,12 @@ def _ensure_train_test_split(state, test_size: float = 0.2, random_state: int = 
             df, test_size=test_size, random_state=random_state,
         )
 
-    state["train_df"] = train_df.reset_index(drop=True)
-    state["test_df"] = test_df.reset_index(drop=True)
+    train_df = train_df.reset_index(drop=True)
+    test_df = test_df.reset_index(drop=True)
+    _set_runtime_train_test(state, train_df, test_df)
 
     logger.info(
-        f"Train/test split created: train={state['train_df'].shape}, "
-        f"test={state['test_df'].shape}"
+        f"Train/test split created: train={train_df.shape}, test={test_df.shape}"
     )
 
 
@@ -165,8 +183,9 @@ async def dataset_node(state):
         summary = dataset_inspector.inspect(dataframe)
         dataset_summary_cache.set(dataset_id, summary)
 
-    state["dataframe"] = dataframe
+    _set_runtime_dataframe(state, dataframe)
     state["dataset_summary"] = summary
+    state.pop("dataframe", None)
 
     return state
 
@@ -297,7 +316,7 @@ def route_task(state):
 
 async def cleaning_node(state):
 
-    dataframe = state.get("dataframe")
+    dataframe = _runtime_dataframe(state)
     target_column = state.get("target_column")
 
     if dataframe is None:
@@ -307,7 +326,7 @@ async def cleaning_node(state):
         dataframe
     )
 
-    state["dataframe"] = cleaned_dataframe
+    _set_runtime_dataframe(state, cleaned_dataframe)
     if target_column is not None:
         state["target_column"] = cleaning_service.standardize_column_name(
             target_column
@@ -316,6 +335,7 @@ async def cleaning_node(state):
     # Data changed — any cached train/test split is now stale.
     state["train_df"] = None
     state["test_df"] = None
+    runtime_state_store.clear_train_test(state.get("dataset_id"))
 
     print("REPORT IN STATE:", state.get("cleaning_report"))
 
@@ -327,7 +347,7 @@ async def cleaning_node(state):
 
 
 async def eda_node(state):
-    dataframe = state.get("dataframe")
+    dataframe = _runtime_dataframe(state)
     if dataframe is None:
         raise ValueError("Dataframe not found in graph state.")
     eda_report = eda_service.analyze(dataframe)
@@ -466,7 +486,7 @@ async def model_selection_planner_node(state):
 
 
 async def visualization_node(state):
-    dataframe = state.get("dataframe")
+    dataframe = _runtime_dataframe(state)
     if dataframe is None:
         raise ValueError("Dataframe not found in graph state.")
 
@@ -505,7 +525,7 @@ async def feature_engineering_planner_node(state):
 
 
 async def feature_engineering_node(state):
-    df = state.get("dataframe")
+    df = _runtime_dataframe(state)
     plan = state.get("feature_engineering_plan")
     target_column = state.get("target_column")
 
@@ -526,8 +546,7 @@ async def feature_engineering_node(state):
 
     _ensure_train_test_split(split_state)
 
-    train_df = split_state.get("train_df")
-    test_df = split_state.get("test_df")
+    train_df, test_df = _runtime_train_test(split_state)
 
     if train_df is None or test_df is None:
         return {
@@ -560,10 +579,10 @@ async def feature_engineering_node(state):
         f"Steps: {report['steps_executed']}/{len(plan.steps)} succeeded."
     )
 
+    _set_runtime_dataframe(state, transformed_df)
+    _set_runtime_train_test(state, train_transformed, test_transformed)
+
     return {
-        "dataframe": transformed_df,
-        "train_df": train_transformed,
-        "test_df": test_transformed,
         "feature_engineering_report": report,
         "_fe_just_completed": msg,
     }
@@ -576,7 +595,7 @@ async def training_node(state):
     """
     _ensure_train_test_split(state)
 
-    df = state.get("train_df")
+    df, _ = _runtime_train_test(state)
     plan = state.get("model_selection_plan")
     target_column = state.get("target_column")
     dataset_id = state.get("dataset_id")
@@ -621,7 +640,7 @@ async def evaluation_node(state):
     """Deterministic evaluation: loads the TUNED model (falling back to the
     untuned trained model if tuning was skipped/failed), scores it against
     the held-out TEST split only — never training data."""
-    df = state.get("test_df")
+    _, df = _runtime_train_test(state)
     target_column = state.get("target_column")
     model_path = state.get("tuned_model_path") or state.get(
         "trained_model_path")
@@ -705,7 +724,7 @@ async def hyperparameter_tuning_node(state):
     """Tunes only on train_df (never test_df) — see _ensure_train_test_split."""
     _ensure_train_test_split(state)
 
-    df = state.get("train_df")
+    df, _ = _runtime_train_test(state)
     plan = state.get("model_selection_plan")
     training_report = state.get("training_report")
     target_column = state.get("target_column")
@@ -773,6 +792,12 @@ async def hyperparameter_tuning_node(state):
 
 
 async def intent_router_node(state):
+    # direct_answer is a response for one chat turn, not durable conversation
+    # state. Clear it before classifying the next message so old answers cannot
+    # leak into a new intent or resume response.
+    state["direct_answer"] = None
+    state["no_prior_analysis"] = False
+
     dataset_id = state.get("dataset_id")
     conversation_id = state.get("conversation_id") or dataset_id
     user_query = state.get("user_query", "")
@@ -824,10 +849,7 @@ async def direct_answer_node(state):
             "need to run an analysis first before you can explain or refine anything."
         )
     else:
-        if state.get("final_report"):
-            context = f"\nPrevious analysis report: {state['final_report']}"
-        else:
-            context = ""
+        context = ""
 
     if conversation_id:
         assembled_context = await llm_context_assembler.assemble(
@@ -902,10 +924,10 @@ async def confirm_refinement_node(state):
             # User tweaked the refinement instruction itself before proceeding.
             state["refine_instruction"] = edit_instruction
 
-        if state.get("dataframe") is None:
+        if _runtime_dataframe(state) is None:
             print("DEBUG: dataframe missing before cascade — reloading from dataset_id")
             dataframe = dataset_service.load_dataset(state["dataset_id"])
-            state["dataframe"] = dataframe
+            _set_runtime_dataframe(state, dataframe)
             if state.get("dataset_summary") is None:
                 state["dataset_summary"] = dataset_summary_cache.get(
                     state["dataset_id"]
@@ -984,6 +1006,8 @@ def _build_plan_summary(plan, constraints: dict) -> str:
 
 
 async def plan_review_node(state):
+    # A resumed plan review must not carry a previous direct-answer response.
+    state["direct_answer"] = None
     plan = state.get("analysis_plan")
     constraints = state.get("user_constraints") or {}
     dataset_summary = state.get("dataset_summary")

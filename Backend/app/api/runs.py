@@ -12,6 +12,12 @@ from services.dataset_service import dataset_service
 router = APIRouter(prefix="/api", tags=["Runs"])
 
 
+def _conversation_title(user_query: str) -> str:
+    """Create a readable history label without another LLM call."""
+    title = " ".join(user_query.split())
+    return title[:77].rstrip() + "..." if len(title) > 80 else title
+
+
 @router.post("/runs", response_model=RunResponse)
 async def create_run(
     payload: RunRequest,
@@ -66,6 +72,7 @@ async def create_run(
             thread_id=thread_id,
             dataset_id=payload.dataset_id,
             user_id=user_id,
+            title=_conversation_title(payload.user_query),
         )
         session.add(conversation)
         await session.flush()  # populates conversation.id before we reference it below

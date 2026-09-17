@@ -3,6 +3,8 @@ import os
 import logging
 from datetime import datetime
 
+from services.runtime_state import runtime_state_store
+
 logger = logging.getLogger(__name__)
 
 
@@ -83,6 +85,8 @@ class ReportingService:
 
     def _build_dataset_overview(self, state: dict) -> dict:
         df = state.get("dataframe")
+        if df is None:
+            df = runtime_state_store.get_dataset(state.get("dataset_id"))
         if df is not None:
             return {
                 "final_shape": list(df.shape),

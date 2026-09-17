@@ -9,9 +9,9 @@ import Workspace from "./pages/Workspace";
 function withSidebar(Page) {
   return (
     <ProtectedRoute>
-      <div className="flex">
+      <div className="flex h-screen overflow-hidden">
         <Sidebar />
-        <div className="flex-1">
+        <div className="flex-1 overflow-hidden">
           <Page />
         </div>
       </div>

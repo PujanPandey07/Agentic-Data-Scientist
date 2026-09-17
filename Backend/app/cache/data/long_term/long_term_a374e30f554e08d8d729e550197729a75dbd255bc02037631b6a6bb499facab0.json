@@ -1,0 +1,20 @@
+{
+  "memories": [
+    {
+      "memory_id": "38db6a00264351e6c4ed44d2317bfc4806154ebfc0765b12ece418338674b8cd",
+      "owner_id": "67b7ee5f-fc80-4fd3-a4d2-ada8ee0405b5",
+      "topic": "preference",
+      "content": "your explanations to be clean and clear",
+      "importance": 0.8,
+      "updated_at": "2026-09-17T06:36:58.084235+00:00"
+    },
+    {
+      "memory_id": "f5cb827d4cbafecfdada9a832e4cabdf6167b54eaf9985a06a2cdd03cb9779bd",
+      "owner_id": "67b7ee5f-fc80-4fd3-a4d2-ada8ee0405b5",
+      "topic": "latest_analysis_conclusion",
+      "content": "Excellent model performance. Ready for deployment.",
+      "importance": 0.75,
+      "updated_at": "2026-09-17T06:42:16.472450+00:00"
+    }
+  ]
+}

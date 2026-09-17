@@ -33,7 +33,6 @@ def get_llm():
             temperature=0,
             api_key=api_key,
             max_retries=2,
-            include_reasoning=False,
         )
 
     # Default: Gemini

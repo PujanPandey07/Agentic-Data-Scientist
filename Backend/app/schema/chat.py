@@ -19,3 +19,9 @@ class ChatResponse(BaseModel):
     interrupt: dict[str, Any] | None = None
     intent: str | None = None
     direct_answer: str | None = None
+
+
+class ChatPendingResponse(BaseModel):
+    interrupted: bool
+    interrupt: dict[str, Any] | None = None
+

@@ -1,0 +1,67 @@
+{
+  "rows": 891,
+  "columns": 12,
+  "column_names": [
+    "PassengerId",
+    "Survived",
+    "Pclass",
+    "Name",
+    "Sex",
+    "Age",
+    "SibSp",
+    "Parch",
+    "Ticket",
+    "Fare",
+    "Cabin",
+    "Embarked"
+  ],
+  "data_types": {
+    "PassengerId": "int64",
+    "Survived": "int64",
+    "Pclass": "int64",
+    "Name": "str",
+    "Sex": "str",
+    "Age": "float64",
+    "SibSp": "int64",
+    "Parch": "int64",
+    "Ticket": "str",
+    "Fare": "float64",
+    "Cabin": "str",
+    "Embarked": "str"
+  },
+  "numerical_columns": [
+    "PassengerId",
+    "Survived",
+    "Pclass",
+    "Age",
+    "SibSp",
+    "Parch",
+    "Fare"
+  ],
+  "categorical_columns": [
+    "Name",
+    "Sex",
+    "Ticket",
+    "Cabin",
+    "Embarked"
+  ],
+  "missing_values": {
+    "PassengerId": 0,
+    "Survived": 0,
+    "Pclass": 0,
+    "Name": 0,
+    "Sex": 0,
+    "Age": 177,
+    "SibSp": 0,
+    "Parch": 0,
+    "Ticket": 0,
+    "Fare": 0,
+    "Cabin": 687,
+    "Embarked": 2
+  },
+  "duplicate_rows": 0,
+  "memory_usage": "285.61 KB",
+  "has_missing_values": true,
+  "has_duplicates": false,
+  "potential_target_columns": []
+}

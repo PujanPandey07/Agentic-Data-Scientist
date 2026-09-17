@@ -6,9 +6,10 @@ high-cardinality dataset's raw eda_report/dataset_summary can easily
 blow past it if dumped into a prompt as-is.
 """
 
-MAX_VALUE_COUNTS_PER_COLUMN = 10
-MAX_CATEGORICAL_COLUMNS_DETAILED = 20
-MAX_NUMERICAL_COLUMNS_DETAILED = 30
+MAX_VALUE_COUNTS_PER_COLUMN = 5
+MAX_CATEGORICAL_COLUMNS_DETAILED = 10
+MAX_NUMERICAL_COLUMNS_DETAILED = 15
+MAX_COLUMNS_LISTED = 20
 
 
 def truncate_for_prompt(obj, max_list_items: int = 15, max_dict_keys: int = 25):
@@ -52,10 +53,17 @@ def summarize_eda_report_for_prompt(eda_report: dict) -> dict:
 
     summary = {
         "shape": eda_report.get("shape"),
-        "numerical_columns": eda_report.get("numerical_columns", []),
-        "categorical_columns": eda_report.get("categorical_columns", []),
-        "missing_values": eda_report.get("missing_values"),
+        "numerical_columns": eda_report.get("numerical_columns", [])[:MAX_COLUMNS_LISTED],
+        "categorical_columns": eda_report.get("categorical_columns", [])[:MAX_COLUMNS_LISTED],
+        "missing_values": dict(list((eda_report.get("missing_values") or {}).items())[:MAX_COLUMNS_LISTED]),
     }
+
+    if len(eda_report.get("numerical_columns", [])) > MAX_COLUMNS_LISTED:
+        summary["numerical_columns_truncated"] = True
+    if len(eda_report.get("categorical_columns", [])) > MAX_COLUMNS_LISTED:
+        summary["categorical_columns_truncated"] = True
+    if len(eda_report.get("missing_values") or {}) > MAX_COLUMNS_LISTED:
+        summary["missing_values_truncated"] = True
 
     # Numerical summary: usually small per-column (a handful of stats),
     # but cap the NUMBER of columns shown in detail anyway for very wide

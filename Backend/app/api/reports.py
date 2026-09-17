@@ -10,6 +10,7 @@ from core.db import get_db_session
 from core.security import get_current_user_id
 from schema.reports import ChartInfo, ChartsResponse
 from api.chat import _get_owned_conversation
+from utilis.sanitize import sanitize_for_json
 
 router = APIRouter(prefix="/api/runs", tags=["Reports"])
 
@@ -20,6 +21,7 @@ def _sanitize_nans(obj):
     NaN/Infinity aren't valid JSON, even though Python's own float type
     allows them. Without this, any report containing a NaN (e.g. a mean
     computed over an all-missing column) crashes the endpoint with a 500."""
+    obj = sanitize_for_json(obj)
     if isinstance(obj, float):
         if math.isnan(obj) or math.isinf(obj):
             return None

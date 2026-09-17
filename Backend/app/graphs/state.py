@@ -3,7 +3,6 @@ import pandas as pd
 
 from schema.model_selection import ModelSelectionPlan
 from schema.feature_planner import FeatureEngineeringPlan
-from schema.feature_planner import FeatureEngineeringPlan
 from schema.visualization_plan import VisualizationPlanResponse
 from schema.analysis_plan import AnalysisPlan
 from schema.dataset_summary import DatasetSummary
@@ -12,6 +11,7 @@ from schema.dataset_summary import DatasetSummary
 class GraphState(TypedDict):
     # User Input
     user_query: str
+    base_user_query: str | None
     dataset_id: str
     conversation_id: str | None
     target_column: str | None
@@ -23,12 +23,17 @@ class GraphState(TypedDict):
     refine_confidence: float | None
     no_prior_analysis: bool | None
     refine_confirmed: bool | None
+    plan_confirmed: bool | None
+    plan_review_cancelled: bool | None
     fan_out_viz_fe: bool | None
     _viz_just_completed: str | None
     _fe_just_completed: str | None
     user_constraints: dict[str, list[str]] | None
 
     # Dataset
+    # Large runtime artifacts (dataframe / train_df / test_df) are intentionally
+    # kept out of the checkpointed graph state and stored in a memory cache keyed
+    # by dataset_id so the persisted state stays lightweight.
     dataframe: pd.DataFrame | None
     dataset_summary: DatasetSummary | None
 

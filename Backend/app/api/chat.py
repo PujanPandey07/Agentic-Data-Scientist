@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.db import get_db_session
 from core.models import Conversation, Message
 from core.security import get_current_user_id
-from schema.chat import ChatRequest, ChatResponse
+from schema.chat import ChatRequest, ChatResponse, ChatPendingResponse
 
 router = APIRouter(prefix="/api", tags=["Chat"])
 
@@ -28,6 +28,20 @@ async def _get_owned_conversation(session: AsyncSession, thread_id: str, user_id
     return conversation
 
 
+def _safe_interrupt_payload(result: dict) -> dict | None:
+    interrupt_block = result.get("__interrupt__") or []
+    if not interrupt_block:
+        return None
+
+    payload = interrupt_block[0].value if hasattr(
+        interrupt_block[0], "value") else interrupt_block[0]
+    if isinstance(payload, dict):
+        nested = payload.get("value") if "value" in payload and isinstance(
+            payload.get("value"), dict) else payload
+        return nested
+    return {"summary": str(payload)}
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     payload: ChatRequest,
@@ -41,8 +55,10 @@ async def chat(
     config = {"configurable": {"thread_id": payload.thread_id}}
 
     snapshot = await graph.aget_state(config)
-    is_paused = bool(snapshot.next) and any(
-        task.interrupts for task in snapshot.tasks
+    snapshot_values = (snapshot.values or {}) if snapshot is not None else {}
+    tasks = getattr(snapshot, "tasks", []) or []
+    is_paused = bool(getattr(snapshot, "next", None)) and any(
+        getattr(task, "interrupts", None) for task in tasks
     )
 
     if is_paused:
@@ -71,21 +87,22 @@ async def chat(
         user_message_content = payload.user_query
         follow_up_state = {
             "user_query": payload.user_query,
-            "dataset_id": snapshot.values.get("dataset_id"),
+            "dataset_id": snapshot_values.get("dataset_id"),
         }
         result = await graph.ainvoke(follow_up_state, config=config)
 
     interrupted = "__interrupt__" in result
-    interrupt_payload = result["__interrupt__"][0].value if interrupted else None
+    interrupt_payload = _safe_interrupt_payload(
+        result) if interrupted else None
 
-    # What actually gets logged as the "assistant" turn — prefer a direct
-    # answer, fall back to the interrupt's summary, fall back to a
-    # generic note so there's always SOMETHING recorded.
-    if result.get("direct_answer"):
-        assistant_message_content = result["direct_answer"]
-    elif interrupted:
+    # What actually gets logged as the "assistant" turn — prefer the current
+    # interrupt, then a current direct answer, then a generic note. Never use
+    # a stale direct answer alongside a new interrupt.
+    if interrupted:
         assistant_message_content = interrupt_payload.get(
-            "summary", "Waiting for your input.")
+            "summary", "Waiting for your input.") if interrupt_payload else "Waiting for your input."
+    elif result.get("direct_answer"):
+        assistant_message_content = result["direct_answer"]
     else:
         assistant_message_content = "Pipeline step completed."
 
@@ -105,5 +122,35 @@ async def chat(
         interrupted=interrupted,
         interrupt=interrupt_payload,
         intent=result.get("intent"),
-        direct_answer=result.get("direct_answer"),
+        direct_answer=None if interrupted else result.get("direct_answer"),
+    )
+
+
+@router.get("/chat/{thread_id}/pending", response_model=ChatPendingResponse)
+async def get_pending_decision(
+    thread_id: str,
+    request: Request,
+    user_id: int = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_session),
+):
+    await _get_owned_conversation(session, thread_id, user_id)
+
+    graph = request.app.state.graph
+    config = {"configurable": {"thread_id": thread_id}}
+
+    snapshot = await graph.aget_state(config)
+    is_paused = bool(snapshot.next) and any(
+        task.interrupts for task in snapshot.tasks
+    )
+
+    interrupt_payload = None
+    if is_paused and snapshot.tasks:
+        for task in snapshot.tasks:
+            if task.interrupts:
+                interrupt_payload = task.interrupts[0].value
+                break
+
+    return ChatPendingResponse(
+        interrupted=is_paused,
+        interrupt=interrupt_payload,
     )

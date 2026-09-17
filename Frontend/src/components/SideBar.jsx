@@ -1,23 +1,31 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import axiosInstance from "../api/axiosstance";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../context/useAuth";
 
 function Sidebar() {
   const [conversations, setConversations] = useState([]);
   const { threadId: activeThreadId } = useParams();
   const { logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  function formatDate(value) {
+    return new Date(value).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+    });
+  }
 
   useEffect(() => {
     axiosInstance
       .get("/api/conversations")
       .then((res) => setConversations(res.data.conversations))
       .catch(() => {});
-  }, [activeThreadId]);
+  }, [location.pathname]);
 
   return (
-    <aside className="w-64 shrink-0 bg-ink text-paper h-screen flex flex-col">
+    <aside className="w-64 shrink-0 bg-ink text-paper h-full flex flex-col">
       <div className="px-4 py-4 border-b border-panel">
         <p className="font-serif text-lg">AI Data Scientist</p>
       </div>
@@ -43,7 +51,12 @@ function Sidebar() {
                 : "text-muted hover:bg-panel/50 hover:text-paper"
             }`}
           >
-            {c.title || `Run ${c.thread_id.slice(0, 8)}`}
+            <span className="block truncate text-paper">
+              {c.title || "Untitled analysis"}
+            </span>
+            <span className="block truncate text-xs text-muted mt-0.5">
+              {formatDate(c.created_at)} · Dataset {c.dataset_id.slice(0, 8)}
+            </span>
           </Link>
         ))}
         {conversations.length === 0 && (

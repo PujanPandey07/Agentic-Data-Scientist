@@ -1,8 +1,7 @@
-import { createContext, useContext, useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import axios from "axios";
 import { setAccessToken as setAxiosAccessToken } from "../api/axiosstance";
-
-const AuthContext = createContext();
+import { AuthContext } from "./AuthContextValue";
 
 export function AuthProvider({ children }) {
   const [accessToken, setAccessTokenState] = useState(null);
@@ -41,8 +40,4 @@ export function AuthProvider({ children }) {
       {children}
     </AuthContext.Provider>
   );
-}
-
-export function useAuth() {
-  return useContext(AuthContext);
 }

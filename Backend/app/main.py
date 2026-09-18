@@ -1,42 +1,41 @@
-# main.py — full updated file
-from api.conversations import router as conversations_router
-from api.auth import router as auth_router
-from api.reports import router as reports_router
-from api.chat import router as chat_router
-from api.runs import router as runs_router
-from api.analysis import router as analysis_router
-from api.upload import router as upload_router
-from api.health import router as health_router
-from core.db import engine, async_session, Base
-from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-from graphs.workflow import builder
-import aiosqlite
-from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi import FastAPI
-from contextlib import asynccontextmanager
 from pathlib import Path
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from graphs.workflow import builder
+import os
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from core.db import engine, async_session, Base
+from api.health import router as health_router
+from api.upload import router as upload_router
+from api.analysis import router as analysis_router
+from api.runs import router as runs_router
+from api.chat import router as chat_router
+from api.reports import router as reports_router
+from api.auth import router as auth_router
+from api.conversations import router as conversations_router
 from dotenv import load_dotenv
+load_dotenv()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    conn = await aiosqlite.connect("checkpoints.sqlite")
-    checkpointer = AsyncSqliteSaver(
-        conn, serde=JsonPlusSerializer(pickle_fallback=True))
-    graph = builder.compile(checkpointer=checkpointer)
+    async with AsyncPostgresSaver.from_conn_string(
+        os.getenv("DATABASE_URL_PSYCOPG")
+    ) as checkpointer:
+        await checkpointer.setup()
 
-    async with engine.begin() as db_conn:
-        await db_conn.run_sync(Base.metadata.create_all)
+        graph = builder.compile(checkpointer=checkpointer)
 
-    app.state.graph = graph
-    app.state.checkpoint_conn = conn
-    app.state.db_session = async_session
+        async with engine.begin() as db_conn:
+            await db_conn.run_sync(Base.metadata.create_all)
 
-    yield
+        app.state.graph = graph
+        app.state.db_session = async_session
 
-    await conn.close()
+        yield
+
     await engine.dispose()
 
 
@@ -47,9 +46,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Allows the Vite dev server (different origin) to call this API with
-# credentials (needed for the httpOnly refresh-token cookie). Must be
-# an exact origin, not "*", since allow_credentials=True is set.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[

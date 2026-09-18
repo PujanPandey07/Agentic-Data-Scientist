@@ -1,0 +1,952 @@
+{
+  "dataset_id": "c5391b6c-dc86-4374-aba7-a6f8dd22b5ba",
+  "generated_at": "2026-09-18T05:34:13.845826Z",
+  "dataset": {
+    "rows": 303,
+    "columns": 14,
+    "column_names": [
+      "age",
+      "sex",
+      "cp",
+      "trestbps",
+      "chol",
+      "fbs",
+      "restecg",
+      "thalach",
+      "exang",
+      "oldpeak",
+      "slope",
+      "ca",
+      "thal",
+      "target"
+    ],
+    "data_types": {
+      "age": "int64",
+      "sex": "int64",
+      "cp": "int64",
+      "trestbps": "int64",
+      "chol": "int64",
+      "fbs": "int64",
+      "restecg": "int64",
+      "thalach": "int64",
+      "exang": "int64",
+      "oldpeak": "float64",
+      "slope": "int64",
+      "ca": "int64",
+      "thal": "int64",
+      "target": "int64"
+    },
+    "numerical_columns": [
+      "age",
+      "sex",
+      "cp",
+      "trestbps",
+      "chol",
+      "fbs",
+      "restecg",
+      "thalach",
+      "exang",
+      "oldpeak",
+      "slope",
+      "ca",
+      "thal",
+      "target"
+    ],
+    "categorical_columns": [],
+    "missing_values": {
+      "age": 0,
+      "sex": 0,
+      "cp": 0,
+      "trestbps": 0,
+      "chol": 0,
+      "fbs": 0,
+      "restecg": 0,
+      "thalach": 0,
+      "exang": 0,
+      "oldpeak": 0,
+      "slope": 0,
+      "ca": 0,
+      "thal": 0,
+      "target": 0
+    },
+    "duplicate_rows": 1,
+    "memory_usage": "33.27 KB",
+    "has_missing_values": false,
+    "has_duplicates": true,
+    "potential_target_columns": [],
+    "target_column": "target",
+    "problem_type": "classification",
+    "final_overview": {
+      "final_shape": [
+        302,
+        39
+      ],
+      "columns": [
+        "oldpeak",
+        "target",
+        "sex_0",
+        "sex_1",
+        "cp_0",
+        "cp_1",
+        "cp_2",
+        "cp_3",
+        "fbs_0",
+        "fbs_1",
+        "restecg_0",
+        "restecg_1",
+        "restecg_2",
+        "exang_0",
+        "exang_1",
+        "slope_0",
+        "slope_1",
+        "slope_2",
+        "ca_0",
+        "ca_1",
+        "ca_2",
+        "ca_3",
+        "ca_4",
+        "thal_0",
+        "thal_1",
+        "thal_2",
+        "thal_3",
+        "age_chol_multiply",
+        "thalach_oldpeak_divide",
+        "age^2",
+        "age trestbps",
+        "age chol",
+        "age thalach",
+        "trestbps^2",
+        "trestbps chol",
+        "trestbps thalach",
+        "chol^2",
+        "chol thalach",
+        "thalach^2"
+      ]
+    }
+  },
+  "cleaning": {
+    "original_rows": 303,
+    "final_rows": 302,
+    "duplicates_removed": 1,
+    "missing_values_remaining": 0
+  },
+  "eda": {
+    "shape": {
+      "rows": 302,
+      "columns": 14
+    },
+    "column_names": [
+      "age",
+      "sex",
+      "cp",
+      "trestbps",
+      "chol",
+      "fbs",
+      "restecg",
+      "thalach",
+      "exang",
+      "oldpeak",
+      "slope",
+      "ca",
+      "thal",
+      "target"
+    ],
+    "numerical_columns": [
+      "age",
+      "sex",
+      "cp",
+      "trestbps",
+      "chol",
+      "fbs",
+      "restecg",
+      "thalach",
+      "exang",
+      "oldpeak",
+      "slope",
+      "ca",
+      "thal",
+      "target"
+    ],
+    "categorical_columns": [],
+    "numerical_summary": {
+      "age": {
+        "count": 302.0,
+        "mean": 54.4205,
+        "std": 9.048,
+        "min": 29.0,
+        "25%": 48.0,
+        "50%": 55.5,
+        "75%": 61.0,
+        "max": 77.0
+      },
+      "sex": {
+        "count": 302.0,
+        "mean": 0.6821,
+        "std": 0.4664,
+        "min": 0.0,
+        "25%": 0.0,
+        "50%": 1.0,
+        "75%": 1.0,
+        "max": 1.0
+      },
+      "cp": {
+        "count": 302.0,
+        "mean": 0.9636,
+        "std": 1.032,
+        "min": 0.0,
+        "25%": 0.0,
+        "50%": 1.0,
+        "75%": 2.0,
+        "max": 3.0
+      },
+      "trestbps": {
+        "count": 302.0,
+        "mean": 131.6026,
+        "std": 17.5634,
+        "min": 94.0,
+        "25%": 120.0,
+        "50%": 130.0,
+        "75%": 140.0,
+        "max": 200.0
+      },
+      "chol": {
+        "count": 302.0,
+        "mean": 246.5,
+        "std": 51.7535,
+        "min": 126.0,
+        "25%": 211.0,
+        "50%": 240.5,
+        "75%": 274.75,
+        "max": 564.0
+      },
+      "fbs": {
+        "count": 302.0,
+        "mean": 0.149,
+        "std": 0.3567,
+        "min": 0.0,
+        "25%": 0.0,
+        "50%": 0.0,
+        "75%": 0.0,
+        "max": 1.0
+      },
+      "restecg": {
+        "count": 302.0,
+        "mean": 0.5265,
+        "std": 0.526,
+        "min": 0.0,
+        "25%": 0.0,
+        "50%": 1.0,
+        "75%": 1.0,
+        "max": 2.0
+      },
+      "thalach": {
+        "count": 302.0,
+        "mean": 149.5695,
+        "std": 22.9035,
+        "min": 71.0,
+        "25%": 133.25,
+        "50%": 152.5,
+        "75%": 166.0,
+        "max": 202.0
+      },
+      "exang": {
+        "count": 302.0,
+        "mean": 0.3278,
+        "std": 0.4702,
+        "min": 0.0,
+        "25%": 0.0,
+        "50%": 0.0,
+        "75%": 1.0,
+        "max": 1.0
+      },
+      "oldpeak": {
+        "count": 302.0,
+        "mean": 1.043,
+        "std": 1.1615,
+        "min": 0.0,
+        "25%": 0.0,
+        "50%": 0.8,
+        "75%": 1.6,
+        "max": 6.2
+      },
+      "slope": {
+        "count": 302.0,
+        "mean": 1.3974,
+        "std": 0.6163,
+        "min": 0.0,
+        "25%": 1.0,
+        "50%": 1.0,
+        "75%": 2.0,
+        "max": 2.0
+      },
+      "ca": {
+        "count": 302.0,
+        "mean": 0.7185,
+        "std": 1.0067,
+        "min": 0.0,
+        "25%": 0.0,
+        "50%": 0.0,
+        "75%": 1.0,
+        "max": 4.0
+      },
+      "thal": {
+        "count": 302.0,
+        "mean": 2.3146,
+        "std": 0.613,
+        "min": 0.0,
+        "25%": 2.0,
+        "50%": 2.0,
+        "75%": 3.0,
+        "max": 3.0
+      },
+      "target": {
+        "count": 302.0,
+        "mean": 0.543,
+        "std": 0.499,
+        "min": 0.0,
+        "25%": 0.0,
+        "50%": 1.0,
+        "75%": 1.0,
+        "max": 1.0
+      }
+    },
+    "categorical_summary": {},
+    "missing_values": {
+      "age": 0,
+      "sex": 0,
+      "cp": 0,
+      "trestbps": 0,
+      "chol": 0,
+      "fbs": 0,
+      "restecg": 0,
+      "thalach": 0,
+      "exang": 0,
+      "oldpeak": 0,
+      "slope": 0,
+      "ca": 0,
+      "thal": 0,
+      "target": 0
+    },
+    "correlation": {
+      "age": {
+        "age": 1.0,
+        "sex": -0.095,
+        "cp": -0.0631,
+        "trestbps": 0.2831,
+        "chol": 0.2072,
+        "fbs": 0.1195,
+        "restecg": -0.1116,
+        "thalach": -0.3952,
+        "exang": 0.0932,
+        "oldpeak": 0.206,
+        "slope": -0.1641,
+        "ca": 0.3023,
+        "thal": 0.0653,
+        "target": -0.2215
+      },
+      "sex": {
+        "age": -0.095,
+        "sex": 1.0,
+        "cp": -0.0517,
+        "trestbps": -0.0576,
+        "chol": -0.1956,
+        "fbs": 0.046,
+        "restecg": -0.0604,
+        "thalach": -0.0464,
+        "exang": 0.1435,
+        "oldpeak": 0.0983,
+        "slope": -0.033,
+        "ca": 0.1131,
+        "thal": 0.2115,
+        "target": -0.2836
+      },
+      "cp": {
+        "age": -0.0631,
+        "sex": -0.0517,
+        "cp": 1.0,
+        "trestbps": 0.0465,
+        "chol": -0.0727,
+        "fbs": 0.096,
+        "restecg": 0.0416,
+        "thalach": 0.2934,
+        "exang": -0.3929,
+        "oldpeak": -0.1467,
+        "slope": 0.1169,
+        "ca": -0.1954,
+        "thal": -0.1604,
+        "target": 0.4321
+      },
+      "trestbps": {
+        "age": 0.2831,
+        "sex": -0.0576,
+        "cp": 0.0465,
+        "trestbps": 1.0,
+        "chol": 0.1253,
+        "fbs": 0.1781,
+        "restecg": -0.1154,
+        "thalach": -0.048,
+        "exang": 0.0685,
+        "oldpeak": 0.1946,
+        "slope": -0.1229,
+        "ca": 0.0992,
+        "thal": 0.0629,
+        "target": -0.1463
+      },
+      "chol": {
+        "age": 0.2072,
+        "sex": -0.1956,
+        "cp": -0.0727,
+        "trestbps": 0.1253,
+        "chol": 1.0,
+        "fbs": 0.0114,
+        "restecg": -0.1476,
+        "thalach": -0.0053,
+        "exang": 0.0641,
+        "oldpeak": 0.0501,
+        "slope": 0.0004,
+        "ca": 0.0869,
+        "thal": 0.0968,
+        "target": -0.0814
+      },
+      "fbs": {
+        "age": 0.1195,
+        "sex": 0.046,
+        "cp": 0.096,
+        "trestbps": 0.1781,
+        "chol": 0.0114,
+        "fbs": 1.0,
+        "restecg": -0.0831,
+        "thalach": -0.0072,
+        "exang": 0.0247,
+        "oldpeak": 0.0045,
+        "slope": -0.0587,
+        "ca": 0.1449,
+        "thal": -0.0328,
+        "target": -0.0268
+      },
+      "restecg": {
+        "age": -0.1116,
+        "sex": -0.0604,
+        "cp": 0.0416,
+        "trestbps": -0.1154,
+        "chol": -0.1476,
+        "fbs": -0.0831,
+        "restecg": 1.0,
+        "thalach": 0.0412,
+        "exang": -0.0688,
+        "oldpeak": -0.0563,
+        "slope": 0.0904,
+        "ca": -0.0831,
+        "thal": -0.0105,
+        "target": 0.1349
+      },
+      "thalach": {
+        "age": -0.3952,
+        "sex": -0.0464,
+        "cp": 0.2934,
+        "trestbps": -0.048,
+        "chol": -0.0053,
+        "fbs": -0.0072,
+        "restecg": 0.0412,
+        "thalach": 1.0,
+        "exang": -0.3774,
+        "oldpeak": -0.3422,
+        "slope": 0.3848,
+        "ca": -0.2283,
+        "thal": -0.0949,
+        "target": 0.42
+      },
+      "exang": {
+        "age": 0.0932,
+        "sex": 0.1435,
+        "cp": -0.3929,
+        "trestbps": 0.0685,
+        "chol": 0.0641,
+        "fbs": 0.0247,
+        "restecg": -0.0688,
+        "thalach": -0.3774,
+        "exang": 1.0,
+        "oldpeak": 0.2868,
+        "slope": -0.2561,
+        "ca": 0.1254,
+        "thal": 0.2058,
+        "target": -0.4356
+      },
+      "oldpeak": {
+        "age": 0.206,
+        "sex": 0.0983,
+        "cp": -0.1467,
+        "trestbps": 0.1946,
+        "chol": 0.0501,
+        "fbs": 0.0045,
+        "restecg": -0.0563,
+        "thalach": -0.3422,
+        "exang": 0.2868,
+        "oldpeak": 1.0,
+        "slope": -0.5763,
+        "ca": 0.2366,
+        "thal": 0.2091,
+        "target": -0.4291
+      },
+      "slope": {
+        "age": -0.1641,
+        "sex": -0.033,
+        "cp": 0.1169,
+        "trestbps": -0.1229,
+        "chol": 0.0004,
+        "fbs": -0.0587,
+        "restecg": 0.0904,
+        "thalach": 0.3848,
+        "exang": -0.2561,
+        "oldpeak": -0.5763,
+        "slope": 1.0,
+        "ca": -0.0922,
+        "thal": -0.1033,
+        "target": 0.3439
+      },
+      "ca": {
+        "age": 0.3023,
+        "sex": 0.1131,
+        "cp": -0.1954,
+        "trestbps": 0.0992,
+        "chol": 0.0869,
+        "fbs": 0.1449,
+        "restecg": -0.0831,
+        "thalach": -0.2283,
+        "exang": 0.1254,
+        "oldpeak": 0.2366,
+        "slope": -0.0922,
+        "ca": 1.0,
+        "thal": 0.1601,
+        "target": -0.409
+      },
+      "thal": {
+        "age": 0.0653,
+        "sex": 0.2115,
+        "cp": -0.1604,
+        "trestbps": 0.0629,
+        "chol": 0.0968,
+        "fbs": -0.0328,
+        "restecg": -0.0105,
+        "thalach": -0.0949,
+        "exang": 0.2058,
+        "oldpeak": 0.2091,
+        "slope": -0.1033,
+        "ca": 0.1601,
+        "thal": 1.0,
+        "target": -0.3431
+      },
+      "target": {
+        "age": -0.2215,
+        "sex": -0.2836,
+        "cp": 0.4321,
+        "trestbps": -0.1463,
+        "chol": -0.0814,
+        "fbs": -0.0268,
+        "restecg": 0.1349,
+        "thalach": 0.42,
+        "exang": -0.4356,
+        "oldpeak": -0.4291,
+        "slope": 0.3439,
+        "ca": -0.409,
+        "thal": -0.3431,
+        "target": 1.0
+      }
+    }
+  },
+  "visualization": {
+    "num_charts": 5,
+    "charts": [
+      {
+        "chart_type": "bar",
+        "x_column": "target",
+        "group_by": null,
+        "path": "outputs\\charts\\c5391b6c-dc86-4374-aba7-a6f8dd22b5ba\\target_bar_chart.png"
+      },
+      {
+        "chart_type": "box",
+        "x_column": "target",
+        "y_column": "age",
+        "path": "outputs\\charts\\c5391b6c-dc86-4374-aba7-a6f8dd22b5ba\\age_by_target_box.png"
+      },
+      {
+        "chart_type": "box",
+        "x_column": "target",
+        "y_column": "chol",
+        "path": "outputs\\charts\\c5391b6c-dc86-4374-aba7-a6f8dd22b5ba\\chol_by_target_box.png"
+      },
+      {
+        "chart_type": "histogram",
+        "x_column": "age",
+        "path": "outputs\\charts\\c5391b6c-dc86-4374-aba7-a6f8dd22b5ba\\age_histogram.png"
+      },
+      {
+        "chart_type": "heatmap",
+        "columns": [
+          "age",
+          "trestbps",
+          "chol",
+          "thalach",
+          "oldpeak",
+          "target",
+          "restecg_2",
+          "ca_4"
+        ],
+        "path": "outputs\\charts\\c5391b6c-dc86-4374-aba7-a6f8dd22b5ba\\correlation_heatmap.png"
+      }
+    ]
+  },
+  "feature_engineering": {
+    "original_train_shape": [
+      241,
+      31
+    ],
+    "original_test_shape": [
+      61,
+      31
+    ],
+    "final_train_shape": [
+      241,
+      39
+    ],
+    "final_test_shape": [
+      61,
+      39
+    ],
+    "strategy": "balanced",
+    "steps_executed": 8,
+    "steps_failed": 0,
+    "step_details": [
+      {
+        "action": "drop_low_variance",
+        "columns": [
+          "sex",
+          "fbs",
+          "exang"
+        ],
+        "status": "success",
+        "details": "Dropped low-variance columns based on train data: []",
+        "target_column_excluded": false
+      },
+      {
+        "action": "drop_high_correlation",
+        "columns": [],
+        "status": "success",
+        "details": "Dropped highly correlated columns based on train data: []",
+        "target_column_excluded": false
+      },
+      {
+        "action": "log_transform",
+        "columns": [
+          "chol",
+          "oldpeak"
+        ],
+        "status": "success",
+        "details": "Log1p transformed ['chol', 'oldpeak']",
+        "target_column_excluded": false
+      },
+      {
+        "action": "sqrt_transform",
+        "columns": [
+          "trestbps"
+        ],
+        "status": "success",
+        "details": "Sqrt transformed ['trestbps']",
+        "target_column_excluded": false
+      },
+      {
+        "action": "create_interaction",
+        "columns": [
+          "age",
+          "chol"
+        ],
+        "status": "success",
+        "details": "Created interaction column age_chol_multiply",
+        "target_column_excluded": false
+      },
+      {
+        "action": "create_interaction",
+        "columns": [
+          "thalach",
+          "oldpeak"
+        ],
+        "status": "success",
+        "details": "Created interaction column thalach_oldpeak_divide",
+        "target_column_excluded": false
+      },
+      {
+        "action": "create_polynomial",
+        "columns": [
+          "age",
+          "trestbps",
+          "chol",
+          "thalach"
+        ],
+        "status": "success",
+        "details": "Polynomial degree=2 fitted on train data only for ['age', 'trestbps', 'chol', 'thalach']",
+        "target_column_excluded": false
+      },
+      {
+        "action": "standard_scale",
+        "columns": [
+          "age",
+          "trestbps",
+          "chol",
+          "thalach",
+          "oldpeak",
+          "ca"
+        ],
+        "status": "success",
+        "details": "Standard scaled ['oldpeak'] using train data only",
+        "target_column_excluded": false
+      }
+    ],
+    "columns_added": [
+      "age_chol_multiply",
+      "thalach_oldpeak_divide",
+      "age^2",
+      "age trestbps",
+      "age chol",
+      "age thalach",
+      "trestbps^2",
+      "trestbps chol",
+      "trestbps thalach",
+      "chol^2",
+      "chol thalach",
+      "thalach^2"
+    ],
+    "columns_removed": [
+      "age",
+      "trestbps",
+      "chol",
+      "thalach"
+    ],
+    "warnings": [
+      "All scaling and transformation statistics must be fitted on the training split only to avoid data leakage.",
+      "If you later use tree\u2011based models, scaling is optional; you may drop the scaling step for those algorithms."
+    ],
+    "notes": [
+      "Balanced strategy was inferred from the request to refine every step for better model performance.",
+      "Duplicate rows should be removed before applying this pipeline (not a column\u2011wise operation).",
+      "No categorical encoding is required because the dataset contains only numeric columns."
+    ],
+    "target_column_guard_triggered": 0
+  },
+  "model_selection": {
+    "strategy": "standard",
+    "sample_size": null,
+    "candidates": [
+      {
+        "algorithm": "logistic_regression",
+        "reason": "Dataset is very small (303 rows) and all features are numeric. After feature engineering (log, sqrt, interactions, polynomial, scaling) a linear model can leverage the standardized features and polynomial terms, providing a fast baseline with minimal risk of over\u2011fitting.",
+        "estimated_time_seconds": 5,
+        "hyperparams": {
+          "C": 1,
+          "max_iter": 1000
+        },
+        "priority": 1
+      },
+      {
+        "algorithm": "random_forest",
+        "reason": "Tree\u2011based models handle mixed interactions and non\u2011linear patterns without needing scaling. The engineered interaction and polynomial features give additional signal, and Random Forest offers robustness on this small, balanced binary classification problem.",
+        "estimated_time_seconds": 10,
+        "hyperparams": {
+          "max_depth": 5,
+          "n_estimators": 100,
+          "random_state": 42
+        },
+        "priority": 2
+      },
+      {
+        "algorithm": "xgboost",
+        "reason": "Gradient\u2011boosted trees often outperform single\u2011tree ensembles on small tabular data with complex interactions. XGBoost can exploit the engineered features while remaining fast on <1K rows.",
+        "estimated_time_seconds": 15,
+        "hyperparams": {
+          "eval_metric": "logloss",
+          "learning_rate": 0.1,
+          "max_depth": 3,
+          "n_estimators": 100,
+          "objective": "binary:logistic",
+          "random_state": 42
+        },
+        "priority": 3
+      }
+    ],
+    "cv_folds": 5,
+    "scoring_metric": "accuracy",
+    "time_budget_minutes": 7,
+    "notes": [
+      "Deep learning models excluded: dataset <1K rows, insufficient data for neural nets.",
+      "Linear SVM excluded: similar to logistic regression but slower with RBF kernel and offers no clear advantage given scaling already applied.",
+      "Naive Bayes excluded: data is not high\u2011dimensional sparse; tree/linear models are more appropriate."
+    ],
+    "forced_algorithm": null
+  },
+  "training": {
+    "strategy": "standard",
+    "sample_size": null,
+    "used_sampling": false,
+    "full_dataset_shape": [
+      241,
+      38
+    ],
+    "sample_shape": [
+      241,
+      38
+    ],
+    "cv_folds": 5,
+    "scoring_metric": "accuracy",
+    "time_budget_minutes": 7,
+    "time_spent_seconds": 5.86,
+    "candidates_results": [
+      {
+        "algorithm": "logistic_regression",
+        "status": "success",
+        "mean_cv_score": 0.709608843537415,
+        "std_cv_score": 0.021776013867390826,
+        "cv_scores": [
+          0.6938775510204082,
+          0.7083333333333334,
+          0.75,
+          0.6875,
+          0.7083333333333334
+        ],
+        "estimated_time_seconds": 5,
+        "actual_time_seconds": 0.19,
+        "hyperparams": {
+          "C": 1,
+          "max_iter": 1000
+        },
+        "reason": "Dataset is very small (303 rows) and all features are numeric. After feature engineering (log, sqrt, interactions, polynomial, scaling) a linear model can leverage the standardized features and polynomial terms, providing a fast baseline with minimal risk of over\u2011fitting.",
+        "converged": true
+      },
+      {
+        "algorithm": "random_forest",
+        "status": "success",
+        "mean_cv_score": 0.8467687074829933,
+        "std_cv_score": 0.05239406475160018,
+        "cv_scores": [
+          0.7755102040816326,
+          0.8125,
+          0.8333333333333334,
+          0.8958333333333334,
+          0.9166666666666666
+        ],
+        "estimated_time_seconds": 10,
+        "actual_time_seconds": 2.4,
+        "hyperparams": {
+          "max_depth": 5,
+          "n_estimators": 100,
+          "random_state": 42
+        },
+        "reason": "Tree\u2011based models handle mixed interactions and non\u2011linear patterns without needing scaling. The engineered interaction and polynomial features give additional signal, and Random Forest offers robustness on this small, balanced binary classification problem.",
+        "converged": true
+      },
+      {
+        "algorithm": "xgboost",
+        "status": "success",
+        "mean_cv_score": 0.8176020408163265,
+        "std_cv_score": 0.04151280072904595,
+        "cv_scores": [
+          0.7755102040816326,
+          0.8125,
+          0.7916666666666666,
+          0.8125,
+          0.8958333333333334
+        ],
+        "estimated_time_seconds": 15,
+        "actual_time_seconds": 3.26,
+        "hyperparams": {
+          "eval_metric": "logloss",
+          "learning_rate": 0.1,
+          "max_depth": 3,
+          "n_estimators": 100,
+          "objective": "binary:logistic",
+          "random_state": 42
+        },
+        "reason": "Gradient\u2011boosted trees often outperform single\u2011tree ensembles on small tabular data with complex interactions. XGBoost can exploit the engineered features while remaining fast on <1K rows.",
+        "converged": true
+      }
+    ],
+    "best_algorithm": "random_forest",
+    "best_mean_cv_score": 0.84677,
+    "best_hyperparams": {
+      "max_depth": 5,
+      "n_estimators": 100,
+      "random_state": 42
+    },
+    "best_reason": "Tree\u2011based models handle mixed interactions and non\u2011linear patterns without needing scaling. The engineered interaction and polynomial features give additional signal, and Random Forest offers robustness on this small, balanced binary classification problem.",
+    "forced_algorithm": null,
+    "forced_override_applied": false,
+    "retrain_note": "Best model trained on full dataset (no sampling needed).",
+    "final_model_converged": true,
+    "notes": [
+      "Deep learning models excluded: dataset <1K rows, insufficient data for neural nets.",
+      "Linear SVM excluded: similar to logistic regression but slower with RBF kernel and offers no clear advantage given scaling already applied.",
+      "Naive Bayes excluded: data is not high\u2011dimensional sparse; tree/linear models are more appropriate."
+    ],
+    "model_path": "outputs/models/c5391b6c-dc86-4374-aba7-a6f8dd22b5ba_best_model.pkl"
+  },
+  "hyperparameter_tuning": {
+    "original_algorithm": "random_forest",
+    "best_trial_score": 0.85921,
+    "best_params": {
+      "n_estimators": 290,
+      "max_depth": 26,
+      "min_samples_split": 15,
+      "min_samples_leaf": 7,
+      "max_features": "sqrt"
+    },
+    "num_trials_completed": 20,
+    "trials_with_convergence_warnings": 0,
+    "final_model_converged": true,
+    "time_seconds": 64.42,
+    "tuned_model_path": "outputs/models/c5391b6c-dc86-4374-aba7-a6f8dd22b5ba_tuned_model.pkl",
+    "param_importance": {
+      "min_samples_split": 0.3809,
+      "max_depth": 0.2215,
+      "min_samples_leaf": 0.1625,
+      "max_features": 0.1296,
+      "n_estimators": 0.1055
+    }
+  },
+  "evaluation": {
+    "problem_type": "classification",
+    "num_samples": 61,
+    "num_features": 38,
+    "metrics": {
+      "accuracy": 0.78689,
+      "precision_macro": 0.80357,
+      "precision_weighted": 0.79918,
+      "recall_macro": 0.77597,
+      "recall_weighted": 0.78689,
+      "f1_macro": 0.77831,
+      "f1_weighted": 0.78188
+    },
+    "artifacts": {
+      "confusion_matrix_path": "outputs/evaluation/c5391b6c-dc86-4374-aba7-a6f8dd22b5ba/confusion_matrix.png",
+      "confusion_matrix_values": [
+        [
+          18,
+          10
+        ],
+        [
+          3,
+          30
+        ]
+      ],
+      "labels": [
+        0,
+        1
+      ],
+      "learning_curve_path": "outputs/evaluation/c5391b6c-dc86-4374-aba7-a6f8dd22b5ba/learning_curve.png"
+    }
+  },
+  "conclusions": {
+    "best_model": "random_forest",
+    "cv_score": 0.84677,
+    "final_accuracy": 0.78689,
+    "final_f1": 0.78188,
+    "recommendation": "Performance needs improvement. Investigate data quality or model complexity."
+  }
+}

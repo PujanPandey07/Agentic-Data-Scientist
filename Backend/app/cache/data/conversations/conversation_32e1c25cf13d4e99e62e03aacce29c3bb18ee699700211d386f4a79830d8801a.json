@@ -1,0 +1,13 @@
+{
+  "conversation_id": "222229a4-dab8-4f7f-b652-d748c109d8f5",
+  "conversation_summary": "",
+  "recent_messages": [
+    {
+      "role": "user",
+      "content": "hey now lets run the overall pipeline for thsi dataset"
+    }
+  ],
+  "current_goal": "hey now lets run the overall pipeline for thsi dataset",
+  "recent_decisions": [],
+  "unresolved_questions": []
+}

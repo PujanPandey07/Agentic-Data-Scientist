@@ -917,11 +917,14 @@ async def confirm_refinement_node(state):
     approved = decision.get("approved", False)
     edit_instruction = decision.get("edit_instruction")
 
-    state["refine_confirmed"] = approved
+    # An edit is itself a decision to proceed — with the revised
+    # instruction — not a rejection. Only a bare Reject (approved=False,
+    # no edit_instruction) should actually cancel.
+    proceed = approved or bool(edit_instruction)
+    state["refine_confirmed"] = proceed
 
-    if approved:
+    if proceed:
         if edit_instruction:
-            # User tweaked the refinement instruction itself before proceeding.
             state["refine_instruction"] = edit_instruction
 
         if _runtime_dataframe(state) is None:

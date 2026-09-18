@@ -1,29 +1,40 @@
+import os
 from logging.config import fileConfig
 
+from dotenv import load_dotenv
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
 from alembic import context
 
+# Load Backend/.env so DATABASE_URL_PSYCOPG is available below — Alembic
+# runs as a standalone script, so nothing else in the app has loaded it yet.
+load_dotenv()
+
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
+
+# Override the placeholder sqlalchemy.url from alembic.ini with the real
+# connection string from the environment. We use DATABASE_URL_PSYCOPG (not
+# DATABASE_URL) because Alembic's default tooling runs synchronously, and
+# psycopg works fine sync — no need to fight asyncpg's async-only interface
+# for a one-off migration script.
+config.set_main_option("sqlalchemy.url", os.getenv("DATABASE_URL_PSYCOPG"))
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# add your model's MetaData object here
-# for 'autogenerate' support
-# from myapp import mymodel
-# target_metadata = mymodel.Base.metadata
-target_metadata = None
+# Import your actual models so autogenerate can compare them against the
+# real database and detect new/changed columns and tables.
+from core.db import Base
+import core.models  # noqa: F401 — imported for its side effect of
+# registering all model classes onto Base.metadata; without this import,
+# Base.metadata would be empty even though Base itself is imported above.
 
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
-# my_important_option = config.get_main_option("my_important_option")
-# ... etc.
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:

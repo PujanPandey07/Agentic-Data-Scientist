@@ -851,6 +851,31 @@ async def direct_answer_node(state):
     else:
         context = ""
 
+    # dataset_summary is normally computed in dataset_node — but
+    # advisory_question/general_question skip that node entirely (they go
+    # straight from intent_router to direct_answer). So if it's missing
+    # here, compute it now, on demand, using the same cache dataset_node
+    # itself uses — this way we don't duplicate the inspection work if the
+    # summary already exists from an earlier run on this dataset_id.
+    dataset_summary = state.get("dataset_summary")
+    dataset_id = state.get("dataset_id")
+
+    if dataset_summary is None and dataset_id:
+        dataset_summary = dataset_summary_cache.get(dataset_id)
+        if dataset_summary is None:
+            dataframe = dataset_service.load_dataset(dataset_id)
+            dataset_summary = dataset_inspector.inspect(dataframe)
+            dataset_summary_cache.set(dataset_id, dataset_summary)
+        state["dataset_summary"] = dataset_summary
+
+    if dataset_summary is not None:
+        context += (
+            "\nHere is the actual dataset the user is asking about — use "
+            "these specifics (real column names, types, stats) in your "
+            "answer instead of generic advice:\n"
+            f"{dataset_summary.model_dump_json(indent=2)}"
+        )
+
     if conversation_id:
         assembled_context = await llm_context_assembler.assemble(
             conversation_id,
@@ -864,7 +889,7 @@ async def direct_answer_node(state):
         )
 
     messages = [
-        {"role": "system", "content": "Answer the user's question directly and concisely."},
+        {"role": "system", "content": "Answer the user's question directly and concisely. When the user asks about their dataset, ground your answer in the real columns/stats provided — do not give a generic template."},
         {"role": "user", "content": f"{state.get('user_query', '')}{context}"},
     ]
 

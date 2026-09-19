@@ -38,11 +38,6 @@ class EvaluationService:
         X = df.drop(columns=[target_column])
         y = df[target_column]
 
-        # Same defensive guard as TrainingService/HyperparameterTuningService
-        # — drop any raw non-numeric columns left behind by feature
-        # engineering before scoring against a model that requires numeric
-        # input. Keeps evaluation's feature set consistent with what the
-        # model was actually trained on.
         non_numeric_cols = X.select_dtypes(
             exclude=["number", "bool"]).columns.tolist()
         if non_numeric_cols:
@@ -181,7 +176,14 @@ class EvaluationService:
 
     def _classification_artifacts(self, y_true, y_pred, target_name, output_dir):
         cm = confusion_matrix(y_true, y_pred)
-        labels = sorted(list(set(y_true) | set(y_pred)))
+        # Cast each element to a native Python int explicitly — sorted()/
+        # list() reorder and collect elements but do NOT convert their
+        # dtype, so without this cast these stay numpy.int64 (since
+        # y_true/y_pred are label-encoded classification targets), which
+        # crashes the Postgres checkpointer's msgpack serialization later
+        # (cm.tolist() just below already handles this correctly for the
+        # confusion matrix itself — this line was the one gap).
+        labels = sorted(int(x) for x in (set(y_true) | set(y_pred)))
 
         plt.figure(figsize=(8, 6))
         sns.heatmap(cm, annot=True, fmt="d", cmap="Blues",

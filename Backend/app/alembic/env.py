@@ -1,3 +1,4 @@
+from core.db import Base
 import os
 from logging.config import fileConfig
 
@@ -20,7 +21,7 @@ config = context.config
 # DATABASE_URL) because Alembic's default tooling runs synchronously, and
 # psycopg works fine sync — no need to fight asyncpg's async-only interface
 # for a one-off migration script.
-config.set_main_option("sqlalchemy.url", os.getenv("DATABASE_URL_PSYCOPG"))
+config.set_main_option("sqlalchemy.url", os.getenv("ALEMBIC_DATABASE_URL"))
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
@@ -29,7 +30,6 @@ if config.config_file_name is not None:
 
 # Import your actual models so autogenerate can compare them against the
 # real database and detect new/changed columns and tables.
-from core.db import Base
 import core.models  # noqa: F401 — imported for its side effect of
 # registering all model classes onto Base.metadata; without this import,
 # Base.metadata would be empty even though Base itself is imported above.

@@ -1,3 +1,4 @@
+from services.job_queue import enqueue_training_job, check_job_result
 import logging
 from sklearn.model_selection import train_test_split as sk_train_test_split
 
@@ -589,49 +590,51 @@ async def feature_engineering_node(state):
 
 
 async def training_node(state):
-    """Deterministic execution: trains models, picks best, saves to disk.
-
-    Trains only on train_df (never test_df) — see _ensure_train_test_split.
-    """
-    _ensure_train_test_split(state)
-
-    df, _ = _runtime_train_test(state)
+    """Trains via a background arq job instead of blocking the graph
+    directly. First call enqueues the job; every call (including
+    resumes) checks whether it's finished yet."""
+    job_id = state.get("_training_job_id")
+    dataset_id = state.get("dataset_id")
     plan = state.get("model_selection_plan")
     target_column = state.get("target_column")
-    dataset_id = state.get("dataset_id")
 
-    print(f"DEBUG: df shape = {df.shape if df is not None else None}")
-    print(f"DEBUG: plan = {plan is not None}")
-    print(f"DEBUG: target_column = {target_column}")
-    print(f"DEBUG: dataset_id = {dataset_id}")
-
-    if df is None or plan is None or target_column is None:
-        state["training_report"] = {
-            "error": "Missing dataframe, model selection plan, or target column"
-        }
-        return advance_execution(
-            state, "model_selection", "Skipped: missing required inputs",
-            status="skipped",
+    if job_id is None:
+        if plan is None or target_column is None:
+            state["training_report"] = {
+                "error": "Missing model selection plan or target column"}
+            return advance_execution(
+                state, "model_selection", "Skipped: missing required inputs",
+                status="skipped",
+            )
+        job_id = await enqueue_training_job(
+            dataset_id, target_column, plan.model_dump()
         )
+        state["_training_job_id"] = job_id
 
-    service = TrainingService()
+    result = await check_job_result(job_id)
 
-    print(f"DEBUG: Calling service.train...")
-    final_model, report, best_candidate = service.train(
-        df=df,
-        plan=plan,
-        target_column=target_column,
-        dataset_id=dataset_id,
-    )
-    print(f"DEBUG: Training done! Best: {best_candidate.algorithm}")
+    if result is None:
+        # Not done yet — pause the graph again. No human decision needed;
+        # the frontend will resume this automatically on a timer.
+        interrupt({
+            "type": "job_status",
+            "job_type": "training",
+            "job_id": job_id,
+            "summary": "Training is running in the background — this may take a moment.",
+        })
+        # Unreachable in practice (interrupt pauses execution here), but
+        # kept for clarity: if somehow resumed without the job finishing,
+        # the next graph tick just re-runs this node from the top anyway.
+        return state
 
-    state["training_report"] = report
-    state["trained_model_path"] = report.get("model_path")
+    state["training_report"] = result
+    state["trained_model_path"] = result.get("model_path")
+    state["_training_job_id"] = None  # clear, job is done
 
     msg = (
-        f"Training complete. Best: {best_candidate.algorithm} "
-        f"with CV score {report['best_mean_cv_score']}. "
-        f"Model saved to {report.get('model_path', 'N/A')}"
+        f"Training complete. Best: {result['best_algorithm']} "
+        f"with CV score {result['best_mean_cv_score']}. "
+        f"Model saved to {result.get('model_path', 'N/A')}"
     )
     return advance_execution(state, "model_selection", msg)
 

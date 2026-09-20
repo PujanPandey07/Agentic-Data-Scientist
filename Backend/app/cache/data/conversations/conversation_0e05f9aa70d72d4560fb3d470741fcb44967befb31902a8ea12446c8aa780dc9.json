@@ -1,0 +1,13 @@
+{
+  "conversation_id": "191ce2e2-8419-4392-8e11-2e417a226482",
+  "conversation_summary": "",
+  "recent_messages": [
+    {
+      "role": "user",
+      "content": "hey run a full pipeline on this datset from preprocessing to trainning and evaluation as a classification tasl with target column target"
+    }
+  ],
+  "current_goal": "hey run a full pipeline on this datset from preprocessing to trainning and evaluation as a classification tasl with target column target",
+  "recent_decisions": [],
+  "unresolved_questions": []
+}

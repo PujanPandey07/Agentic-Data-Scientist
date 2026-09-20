@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -195,6 +195,15 @@ function Composer({ onStart }) {
 function InterruptCard({ interrupt }) {
   const type = interrupt?.type;
 
+  if (type === "job_status") {
+    return (
+      <div className="bg-white border border-muted/20 rounded-lg px-4 py-3 text-sm max-w-[85%] flex items-center gap-2">
+        <span className="animate-pulse">⏳</span>
+        <p className="text-ink">{interrupt.summary}</p>
+      </div>
+    );
+  }
+
   if (type === "plan_review") {
     return (
       <div className="bg-white border border-muted/20 rounded-lg px-4 py-3 text-sm max-w-[85%]">
@@ -258,6 +267,7 @@ function MessageBubble({ msg }) {
     </div>
   );
 }
+
 function Workspace() {
   const { threadId } = useParams();
   const navigate = useNavigate();
@@ -274,6 +284,8 @@ function Workspace() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [loadingHistory, setLoadingHistory] = useState(Boolean(threadId));
+
+  const pollIntervalRef = useRef(null);
 
   useEffect(() => {
     // Route changes must reset the visible conversation before loading its data.
@@ -341,6 +353,38 @@ function Workspace() {
       .finally(() => setLoadingHistory(false));
   }, [threadId, freshResult, freshQuery]);
 
+  // Auto-poll: when the current pending interrupt is a "job_status" type
+  // (a background job like training still running), automatically resend
+  // a resume every 3 seconds — no human decision needed, this just asks
+  // the graph to re-check whether the background job has finished yet.
+  // Stops itself once the interrupt clears (job done) or changes type.
+  useEffect(() => {
+    const lastMsg = messages[messages.length - 1];
+    const isJobWaiting =
+      awaitingDecision &&
+      lastMsg?.type === "interrupt" &&
+      lastMsg.interrupt?.type === "job_status";
+
+    if (isJobWaiting && !pollIntervalRef.current) {
+      pollIntervalRef.current = setInterval(() => {
+        sendChat({ decision: { approved: true, edit_instruction: null } });
+      }, 3000);
+    }
+
+    if (!isJobWaiting && pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, awaitingDecision]);
+
   async function startRun(file, query) {
     const trimmedQuery = query?.trim();
     if (!file) throw new Error("Please upload a CSV file before starting a full run.");
@@ -407,6 +451,12 @@ function Workspace() {
   if (!threadId) return <div className="bg-paper h-full overflow-y-auto"><Composer onStart={startRun} /></div>;
   if (loadingHistory) return <div className="max-w-2xl mx-auto px-6 py-12 text-muted">Loading...</div>;
 
+  const lastMsg = messages[messages.length - 1];
+  const isJobWaiting =
+    awaitingDecision &&
+    lastMsg?.type === "interrupt" &&
+    lastMsg.interrupt?.type === "job_status";
+
   return (
     <div className="flex h-full">
       <div className="flex-1 flex flex-col">
@@ -423,27 +473,29 @@ function Workspace() {
           )}
 
           {awaitingDecision ? (
-            <div className="space-y-3">
-              <div className="flex gap-3">
-                <button onClick={() => handleDecision(true)} disabled={loading}
-                  className="bg-accent text-ink px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50">
-                  Approve
-                </button>
-                <button onClick={() => handleDecision(false)} disabled={loading}
-                  className="bg-clay text-white px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50">
-                  Reject
-                </button>
+            isJobWaiting ? null : (
+              <div className="space-y-3">
+                <div className="flex gap-3">
+                  <button onClick={() => handleDecision(true)} disabled={loading}
+                    className="bg-accent text-ink px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50">
+                    Approve
+                  </button>
+                  <button onClick={() => handleDecision(false)} disabled={loading}
+                    className="bg-clay text-white px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50">
+                    Reject
+                  </button>
+                </div>
+                <form onSubmit={handleEditSubmit} className="flex gap-2">
+                  <input value={editText} onChange={(e) => setEditText(e.target.value)}
+                    placeholder="Or describe what to change instead..."
+                    className="flex-1 px-3 py-2 border border-muted/40 rounded-md bg-white text-ink text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
+                  <button type="submit" disabled={loading}
+                    className="bg-ink text-paper px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50">
+                    Send Edit
+                  </button>
+                </form>
               </div>
-              <form onSubmit={handleEditSubmit} className="flex gap-2">
-                <input value={editText} onChange={(e) => setEditText(e.target.value)}
-                  placeholder="Or describe what to change instead..."
-                  className="flex-1 px-3 py-2 border border-muted/40 rounded-md bg-white text-ink text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
-                <button type="submit" disabled={loading}
-                  className="bg-ink text-paper px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50">
-                  Send Edit
-                </button>
-              </form>
-            </div>
+            )
           ) : (
             <form onSubmit={handleSendMessage} className="flex gap-2">
               <input value={input} onChange={(e) => setInput(e.target.value)}

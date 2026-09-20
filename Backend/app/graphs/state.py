@@ -60,6 +60,7 @@ class GraphState(TypedDict):
     model_selection_plan: ModelSelectionPlan | None
     training_report: dict | None
     trained_model_path: str | None   # NEW — set by training node
+    _training_job_id: str | None
 
   # evaluation
     evaluation_report: dict | None

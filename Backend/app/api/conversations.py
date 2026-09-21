@@ -1,6 +1,6 @@
 # api/conversations.py — full updated file
-from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db import get_db_session
@@ -65,3 +65,26 @@ async def get_messages(
             for m in messages
         ],
     )
+
+
+@router.delete("/{thread_id}", status_code=204)
+async def delete_conversation(
+    thread_id: str,
+    user_id: int = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Delete a conversation and all its messages.
+    Returns 204 No Content on success — same deliberate 404 for
+    'not found' and 'belongs to someone else' to avoid leaking
+    whether a thread_id exists at all.
+    """
+    # Ownership check — raises 404 if not found or not theirs.
+    conversation = await _get_owned_conversation(session, thread_id, user_id)
+
+    # Delete child messages first to satisfy the foreign-key constraint,
+    # then delete the conversation row itself.
+    await session.execute(
+        delete(Message).where(Message.conversation_id == conversation.id)
+    )
+    await session.delete(conversation)
+    await session.commit()

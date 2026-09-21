@@ -36,6 +36,7 @@ from analysis.inspector import dataset_inspector
 from services.cleaning_service import CleaningService
 from services.executiopn_service import execution_service
 from agents.visualization_planner import visualization_planner_agent
+from services.job_queue import enqueue_training_job, check_job_result, enqueue_tuning_job
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -590,9 +591,6 @@ async def feature_engineering_node(state):
 
 
 async def training_node(state):
-    """Trains via a background arq job instead of blocking the graph
-    directly. First call enqueues the job; every call (including
-    resumes) checks whether it's finished yet."""
     job_id = state.get("_training_job_id")
     dataset_id = state.get("dataset_id")
     plan = state.get("model_selection_plan")
@@ -611,25 +609,30 @@ async def training_node(state):
         )
         state["_training_job_id"] = job_id
 
-    result = await check_job_result(job_id)
+    outcome = await check_job_result(job_id)
 
-    if result is None:
-        # Not done yet — pause the graph again. No human decision needed;
-        # the frontend will resume this automatically on a timer.
+    if outcome is None:
         interrupt({
             "type": "job_status",
             "job_type": "training",
             "job_id": job_id,
             "summary": "Training is running in the background — this may take a moment.",
         })
-        # Unreachable in practice (interrupt pauses execution here), but
-        # kept for clarity: if somehow resumed without the job finishing,
-        # the next graph tick just re-runs this node from the top anyway.
         return state
 
+    state["_training_job_id"] = None
+
+    if outcome["status"] == "failed":
+        state["training_report"] = {"error": outcome["error"]}
+        return advance_execution(
+            state, "model_selection",
+            f"Training failed: {outcome['error']}",
+            status="skipped",
+        )
+
+    result = outcome["result"]
     state["training_report"] = result
     state["trained_model_path"] = result.get("model_path")
-    state["_training_job_id"] = None  # clear, job is done
 
     msg = (
         f"Training complete. Best: {result['best_algorithm']} "
@@ -724,71 +727,86 @@ async def reporting_node(state):
 
 
 async def hyperparameter_tuning_node(state):
-    """Tunes only on train_df (never test_df) — see _ensure_train_test_split."""
-    _ensure_train_test_split(state)
-
-    df, _ = _runtime_train_test(state)
+    job_id = state.get("_tuning_job_id")
+    dataset_id = state.get("dataset_id")
     plan = state.get("model_selection_plan")
     training_report = state.get("training_report")
     target_column = state.get("target_column")
-    dataset_id = state.get("dataset_id")
     analysis_plan = state.get("analysis_plan")
 
-    if df is None or plan is None or training_report is None or target_column is None or dataset_id is None:
+    if job_id is None:
+        if plan is None or training_report is None or target_column is None or dataset_id is None:
+            state["hyperparameter_tuning_report"] = {
+                "status": "skipped", "reason": "missing inputs"}
+            state["tuned_model_path"] = state.get("trained_model_path")
+            return advance_execution(
+                state, "hyperparameter_tuning", "Skipped: missing inputs",
+                status="skipped",
+            )
+
+        if plan.strategy == "quick":
+            state["hyperparameter_tuning_report"] = {
+                "status": "skipped", "reason": "quick strategy"}
+            state["tuned_model_path"] = state.get("trained_model_path")
+            return advance_execution(
+                state, "hyperparameter_tuning", "Skipped: quick strategy",
+                status="skipped",
+            )
+
+        best_algorithm = training_report.get("best_algorithm")
+        best_candidate = next(
+            (c for c in plan.candidates if c.algorithm == best_algorithm), None)
+        if not best_candidate:
+            state["hyperparameter_tuning_report"] = {
+                "status": "skipped", "reason": "best candidate not found"}
+            state["tuned_model_path"] = state.get("trained_model_path")
+            return advance_execution(
+                state, "hyperparameter_tuning", "Skipped: candidate not found",
+                status="skipped",
+            )
+
+        problem_type = analysis_plan.problem_type if analysis_plan else "classification"
+
+        job_id = await enqueue_tuning_job(
+            dataset_id, target_column, best_candidate.model_dump(),
+            problem_type,
+            max_trials=20 if plan.strategy == "standard" else 50,
+            time_budget_seconds=120 if plan.strategy == "standard" else 300,
+        )
+        state["_tuning_job_id"] = job_id
+
+    outcome = await check_job_result(job_id)
+
+    if outcome is None:
+        interrupt({
+            "type": "job_status",
+            "job_type": "hyperparameter_tuning",
+            "job_id": job_id,
+            "summary": "Hyperparameter tuning is running in the background — this may take a moment.",
+        })
+        return state
+
+    state["_tuning_job_id"] = None
+
+    if outcome["status"] == "failed":
         state["hyperparameter_tuning_report"] = {
-            "status": "skipped", "reason": "missing inputs"}
+            "status": "failed", "error": outcome["error"]}
         state["tuned_model_path"] = state.get("trained_model_path")
         return advance_execution(
-            state, "hyperparameter_tuning", "Skipped: missing inputs",
+            state, "hyperparameter_tuning",
+            f"Tuning failed: {outcome['error']}",
             status="skipped",
         )
 
-    # Skip for quick strategy
-    if plan.strategy == "quick":
-        state["hyperparameter_tuning_report"] = {
-            "status": "skipped", "reason": "quick strategy"}
-        state["tuned_model_path"] = state.get("trained_model_path")
-        return advance_execution(
-            state, "hyperparameter_tuning", "Skipped: quick strategy",
-            status="skipped",
-        )
+    result = outcome["result"]
+    state["hyperparameter_tuning_report"] = result
+    state["tuned_model_path"] = result["tuned_model_path"]
 
-    best_algorithm = training_report.get("best_algorithm")
-    best_candidate = next(
-        (c for c in plan.candidates if c.algorithm == best_algorithm), None)
-    if not best_candidate:
-        state["hyperparameter_tuning_report"] = {
-            "status": "skipped", "reason": "best candidate not found"}
-        state["tuned_model_path"] = state.get("trained_model_path")
-        return advance_execution(
-            state, "hyperparameter_tuning", "Skipped: candidate not found",
-            status="skipped",
-        )
-
-    # analysis_plan may legitimately be None on a thread that's only ever
-    # been driven via refine_step (never went through planner_node).
-    # Default rather than assume, same as evaluation_node does.
-    problem_type = analysis_plan.problem_type if analysis_plan else "classification"
-
-    service = HyperparameterTuningService()
-    tuned_model, report = service.tune(
-        df=df,
-        target_column=target_column,
-        best_candidate=best_candidate,
-        problem_type=problem_type,
-        dataset_id=dataset_id,
-        max_trials=20 if plan.strategy == "standard" else 50,
-        time_budget_seconds=120 if plan.strategy == "standard" else 300,
-    )
-
-    state["hyperparameter_tuning_report"] = report
-    state["tuned_model_path"] = report["tuned_model_path"]
-
-    top_param = max(report["param_importance"],
-                    key=report["param_importance"].get) if report["param_importance"] else "N/A"
+    top_param = max(result["param_importance"],
+                    key=result["param_importance"].get) if result["param_importance"] else "N/A"
     msg = (
-        f"Tuning complete. Score: {report['best_trial_score']}. "
-        f"Trials: {report['num_trials_completed']}. "
+        f"Tuning complete. Score: {result['best_trial_score']}. "
+        f"Trials: {result['num_trials_completed']}. "
         f"Top param: {top_param}"
     )
     return advance_execution(state, "hyperparameter_tuning", msg)

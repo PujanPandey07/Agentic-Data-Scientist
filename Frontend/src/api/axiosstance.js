@@ -13,6 +13,12 @@ export function setAccessToken(token) {
   accessToken = token;
 }
 
+// Read the current in-memory token — used by the SSE EventSource URL
+// since EventSource cannot set custom headers (browser limitation).
+export function getAccessToken() {
+  return accessToken;
+}
+
 // The actual axios instance every part of the app will import and use
 // instead of calling axios directly — this is what makes the token
 // attachment and refresh logic automatic and centralized.

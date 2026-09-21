@@ -3,7 +3,7 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import axiosInstance from "../api/axiosstance";
+import axiosInstance, { getAccessToken } from "../api/axiosstance";
 import ArtifactPanel from "../components/ArtifactPanel";
 import { cleanMarkdown, formatAnalysisAsMarkdown } from "../utils/FormatReport";
 
@@ -285,7 +285,7 @@ function Workspace() {
   const [errorMsg, setErrorMsg] = useState("");
   const [loadingHistory, setLoadingHistory] = useState(Boolean(threadId));
 
-  const pollIntervalRef = useRef(null);
+  const sseRef = useRef(null);
 
   useEffect(() => {
     // Route changes must reset the visible conversation before loading its data.
@@ -353,11 +353,11 @@ function Workspace() {
       .finally(() => setLoadingHistory(false));
   }, [threadId, freshResult, freshQuery]);
 
-  // Auto-poll: when the current pending interrupt is a "job_status" type
-  // (a background job like training still running), automatically resend
-  // a resume every 3 seconds — no human decision needed, this just asks
-  // the graph to re-check whether the background job has finished yet.
-  // Stops itself once the interrupt clears (job done) or changes type.
+  // SSE listener: when the graph is paused on a background job (job_status
+  // interrupt), open a Server-Sent Events connection to /api/jobs/{id}/stream
+  // instead of polling. The backend holds this connection open and pushes
+  // exactly one event the moment training finishes — then we resume the graph
+  // with a single request. Zero wasted HTTP calls, zero race conditions.
   useEffect(() => {
     const lastMsg = messages[messages.length - 1];
     const isJobWaiting =
@@ -365,25 +365,58 @@ function Workspace() {
       lastMsg?.type === "interrupt" &&
       lastMsg.interrupt?.type === "job_status";
 
-    if (isJobWaiting && !pollIntervalRef.current) {
-      pollIntervalRef.current = setInterval(() => {
-        sendChat({ decision: { approved: true, edit_instruction: null } });
-      }, 3000);
+    if (isJobWaiting && !sseRef.current) {
+      const jobId = lastMsg.interrupt.job_id;
+      const token = getAccessToken();
+
+      // Build the SSE URL — token goes in the query string because
+      // the browser's EventSource API cannot send custom headers.
+      const url = `http://127.0.0.1:8000/api/jobs/${jobId}/stream?token=${encodeURIComponent(token)}`;
+      const es = new EventSource(url);
+      sseRef.current = es;
+
+      es.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+
+        if (data.status === "complete") {
+          // Training done — close the SSE connection and wake the graph.
+          es.close();
+          sseRef.current = null;
+          sendChat({ decision: { approved: true, edit_instruction: null } });
+        } else if (data.status === "timeout") {
+          // Server hit the 10-minute ceiling — show a warning.
+          es.close();
+          sseRef.current = null;
+          setErrorMsg("Training is taking longer than expected. Please check back later.");
+          setAwaitingDecision(false);
+        }
+      };
+
+      es.onerror = () => {
+        // Connection dropped (network hiccup, server restart, etc.).
+        // Close cleanly — the user can manually retry from the UI.
+        es.close();
+        sseRef.current = null;
+        setErrorMsg("Lost connection while waiting for training. Please refresh.");
+        setAwaitingDecision(false);
+      };
     }
 
-    if (!isJobWaiting && pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current);
-      pollIntervalRef.current = null;
+    // Job finished or user navigated away — close any open SSE connection.
+    if (!isJobWaiting && sseRef.current) {
+      sseRef.current.close();
+      sseRef.current = null;
     }
 
     return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
+      if (sseRef.current) {
+        sseRef.current.close();
+        sseRef.current = null;
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, awaitingDecision]);
+
 
   async function startRun(file, query) {
     const trimmedQuery = query?.trim();

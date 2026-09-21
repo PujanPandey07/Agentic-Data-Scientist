@@ -1,0 +1,13 @@
+{
+  "conversation_id": "dd9b1cbd-9be0-4437-8275-6041fb4a87e4",
+  "conversation_summary": "",
+  "recent_messages": [
+    {
+      "role": "user",
+      "content": "okay  run a regression model on the dataset with package as target column"
+    }
+  ],
+  "current_goal": "okay  run a regression model on the dataset with package as target column",
+  "recent_decisions": [],
+  "unresolved_questions": []
+}

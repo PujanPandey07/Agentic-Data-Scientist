@@ -5,7 +5,8 @@ from graphs.nodes import (
     advance_execution, refinement_cancelled_node, route_after_confirmation,
     router, cleaning_node, eda_node, visualization_node,
     visualization_planner_node, feature_engineering_planner_node, feature_engineering_node,
-    model_selection_planner_node, training_node, hyperparameter_tuning_node,
+    model_selection_planner_node, enqueue_training_node, poll_training_node,
+    enqueue_tuning_node, poll_tuning_node,
     evaluation_node, reporting_node, route_task, planner_agent,
     intent_router_node, route_intent, direct_answer_node, refine_target_node, extract_constraints_node,
     plan_review_node, plan_review_cancelled_node, route_after_plan_review,
@@ -24,7 +25,12 @@ builder.add_node("cleaning", cleaning_node)
 builder.add_node("eda", eda_node)
 builder.add_node("visualization", visualization_node)
 builder.add_node("model_selection_planner", model_selection_planner_node)
-builder.add_node("training", training_node)
+# Training split into enqueue (commits _training_job_id to the checkpoint
+# via a real return) + poll (reads that committed job_id and interrupts
+# safely — no enqueue side effect to duplicate on resume). See the note
+# above enqueue_training_node in nodes.py for why this split exists.
+builder.add_node("enqueue_training", enqueue_training_node)
+builder.add_node("poll_training", poll_training_node)
 builder.add_node("evaluation", evaluation_node)
 builder.add_node("reporting", reporting_node)
 builder.add_node("router", router)
@@ -32,7 +38,9 @@ builder.add_node("visualization_planner", visualization_planner_node)
 builder.add_node("feature_engineering_planner",
                  feature_engineering_planner_node)
 builder.add_node("feature_engineering", feature_engineering_node)
-builder.add_node("hyperparameter_tuning", hyperparameter_tuning_node)
+# Same enqueue/poll split for hyperparameter tuning.
+builder.add_node("enqueue_tuning", enqueue_tuning_node)
+builder.add_node("poll_tuning", poll_tuning_node)
 builder.add_node("intent_router", intent_router_node)
 builder.add_node("direct_answer", direct_answer_node)
 builder.add_node("refine_target", refine_target_node)
@@ -92,7 +100,7 @@ builder.add_conditional_edges(
         "visualization": "visualization_planner",
         "feature_engineering": "feature_engineering_planner",
         "model_selection": "model_selection_planner",
-        "hyperparameter_tuning": "hyperparameter_tuning",
+        "hyperparameter_tuning": "enqueue_tuning",
         "evaluation": "evaluation",
         "reporting": "reporting",
         "visualization_planner": "visualization_planner",
@@ -111,9 +119,11 @@ builder.add_edge("visualization", "router")
 builder.add_edge("feature_engineering_planner",
                  "feature_engineering")
 builder.add_edge("feature_engineering", "router")
-builder.add_edge("model_selection_planner", "training")
-builder.add_edge("training", "router")
-builder.add_edge("hyperparameter_tuning", "router")
+builder.add_edge("model_selection_planner", "enqueue_training")
+builder.add_edge("enqueue_training", "poll_training")
+builder.add_edge("poll_training", "router")
+builder.add_edge("enqueue_tuning", "poll_tuning")
+builder.add_edge("poll_tuning", "router")
 builder.add_edge("evaluation", "router")
 builder.add_edge("reporting", "router")
 

@@ -58,14 +58,25 @@ async def check_job_result(job_id: str):
     if raw is not None:
         return {"status": "complete", "result": json.loads(raw)}
 
-    # Only reachable if the job failed before ever reaching
-    # publish_job_complete — check arq's own status for that case.
+    # Only reachable if the job finished (successfully or not) before ever
+    # reaching publish_job_complete — e.g. it raised an exception. arq has
+    # no "failed" JobStatus; a job that raised still ends up with
+    # status == complete, so success/failure has to be read from
+    # JobResult.success instead of from status itself.
     pool = await get_pool()
     job = Job(job_id, pool)
     status = await job.status()
-    if status == JobStatus.failed:
+    if status == JobStatus.complete:
         info = await job.result_info()
-        return {"status": "failed", "error": str(info.result) if info else "Unknown error"}
+        if info is not None and not info.success:
+            return {"status": "failed", "error": str(info.result)}
+        # info.success True but we never got publish_job_complete's
+        # redis write — treat as failed too, since we have no proper
+        # result payload to return as "complete".
+        return {"status": "failed", "error": "Job completed without a recorded result"}
+
+    if status == JobStatus.not_found:
+        return {"status": "failed", "error": "Job not found (may have expired or crashed before starting)"}
 
     return None
 

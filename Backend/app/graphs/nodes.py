@@ -590,24 +590,56 @@ async def feature_engineering_node(state):
     }
 
 
-async def training_node(state):
-    job_id = state.get("_training_job_id")
+# ---------------------------------------------------------------------------
+# TRAINING — split into enqueue + poll.
+#
+# WHY: interrupt() re-executes its ENCLOSING NODE FROM THE TOP on every
+# resume (this is documented LangGraph behavior — "the graph resumes from
+# the start of the node, re-executing all logic"). The original single
+# training_node set state["_training_job_id"] = job_id AFTER enqueueing but
+# BEFORE calling interrupt() — that assignment lives only in the node's
+# local `state` dict and is never committed to the checkpoint, because the
+# node never reached a real `return` before pausing. So on every resume,
+# job_id read back out as None again, and the node enqueued a BRAND NEW job
+# every single time — this was confirmed live: dozens of duplicate jobs
+# fired in rapid succession for hyperparameter_tuning (same bug, more
+# visible because those jobs finished fast).
+#
+# FIX: enqueue_training_node does the enqueue and returns immediately (a
+# real graph step, which DOES commit to the checkpoint). poll_training_node
+# is a separate node that only reads the now-reliably-persisted job_id and
+# checks status — it's safe to let LangGraph re-run this one from the top
+# on every resume, since it has no enqueue side effect of its own.
+# ---------------------------------------------------------------------------
+
+async def enqueue_training_node(state):
     dataset_id = state.get("dataset_id")
     plan = state.get("model_selection_plan")
     target_column = state.get("target_column")
 
-    if job_id is None:
-        if plan is None or target_column is None:
-            state["training_report"] = {
-                "error": "Missing model selection plan or target column"}
-            return advance_execution(
-                state, "model_selection", "Skipped: missing required inputs",
-                status="skipped",
-            )
-        job_id = await enqueue_training_job(
-            dataset_id, target_column, plan.model_dump()
+    if plan is None or target_column is None:
+        state["training_report"] = {
+            "error": "Missing model selection plan or target column"}
+        state["_training_job_id"] = None
+        return advance_execution(
+            state, "model_selection", "Skipped: missing required inputs",
+            status="skipped",
         )
-        state["_training_job_id"] = job_id
+
+    job_id = await enqueue_training_job(
+        dataset_id, target_column, plan.model_dump()
+    )
+    state["_training_job_id"] = job_id
+    return state
+
+
+async def poll_training_node(state):
+    job_id = state.get("_training_job_id")
+
+    if job_id is None:
+        # enqueue_training_node already handled a skip case above and
+        # advanced past model_selection itself — nothing to poll.
+        return state
 
     outcome = await check_job_result(job_id)
 
@@ -726,54 +758,69 @@ async def reporting_node(state):
     return advance_execution(state, "reporting", msg)
 
 
-async def hyperparameter_tuning_node(state):
-    job_id = state.get("_tuning_job_id")
+# ---------------------------------------------------------------------------
+# HYPERPARAMETER TUNING — same enqueue/poll split as training, same reason.
+# ---------------------------------------------------------------------------
+
+async def enqueue_tuning_node(state):
     dataset_id = state.get("dataset_id")
     plan = state.get("model_selection_plan")
     training_report = state.get("training_report")
     target_column = state.get("target_column")
     analysis_plan = state.get("analysis_plan")
 
-    if job_id is None:
-        if plan is None or training_report is None or target_column is None or dataset_id is None:
-            state["hyperparameter_tuning_report"] = {
-                "status": "skipped", "reason": "missing inputs"}
-            state["tuned_model_path"] = state.get("trained_model_path")
-            return advance_execution(
-                state, "hyperparameter_tuning", "Skipped: missing inputs",
-                status="skipped",
-            )
-
-        if plan.strategy == "quick":
-            state["hyperparameter_tuning_report"] = {
-                "status": "skipped", "reason": "quick strategy"}
-            state["tuned_model_path"] = state.get("trained_model_path")
-            return advance_execution(
-                state, "hyperparameter_tuning", "Skipped: quick strategy",
-                status="skipped",
-            )
-
-        best_algorithm = training_report.get("best_algorithm")
-        best_candidate = next(
-            (c for c in plan.candidates if c.algorithm == best_algorithm), None)
-        if not best_candidate:
-            state["hyperparameter_tuning_report"] = {
-                "status": "skipped", "reason": "best candidate not found"}
-            state["tuned_model_path"] = state.get("trained_model_path")
-            return advance_execution(
-                state, "hyperparameter_tuning", "Skipped: candidate not found",
-                status="skipped",
-            )
-
-        problem_type = analysis_plan.problem_type if analysis_plan else "classification"
-
-        job_id = await enqueue_tuning_job(
-            dataset_id, target_column, best_candidate.model_dump(),
-            problem_type,
-            max_trials=20 if plan.strategy == "standard" else 50,
-            time_budget_seconds=120 if plan.strategy == "standard" else 300,
+    if plan is None or training_report is None or target_column is None or dataset_id is None:
+        state["hyperparameter_tuning_report"] = {
+            "status": "skipped", "reason": "missing inputs"}
+        state["tuned_model_path"] = state.get("trained_model_path")
+        state["_tuning_job_id"] = None
+        return advance_execution(
+            state, "hyperparameter_tuning", "Skipped: missing inputs",
+            status="skipped",
         )
-        state["_tuning_job_id"] = job_id
+
+    if plan.strategy == "quick":
+        state["hyperparameter_tuning_report"] = {
+            "status": "skipped", "reason": "quick strategy"}
+        state["tuned_model_path"] = state.get("trained_model_path")
+        state["_tuning_job_id"] = None
+        return advance_execution(
+            state, "hyperparameter_tuning", "Skipped: quick strategy",
+            status="skipped",
+        )
+
+    best_algorithm = training_report.get("best_algorithm")
+    best_candidate = next(
+        (c for c in plan.candidates if c.algorithm == best_algorithm), None)
+    if not best_candidate:
+        state["hyperparameter_tuning_report"] = {
+            "status": "skipped", "reason": "best candidate not found"}
+        state["tuned_model_path"] = state.get("trained_model_path")
+        state["_tuning_job_id"] = None
+        return advance_execution(
+            state, "hyperparameter_tuning", "Skipped: candidate not found",
+            status="skipped",
+        )
+
+    problem_type = analysis_plan.problem_type if analysis_plan else "classification"
+
+    job_id = await enqueue_tuning_job(
+        dataset_id, target_column, best_candidate.model_dump(),
+        problem_type,
+        max_trials=20 if plan.strategy == "standard" else 50,
+        time_budget_seconds=120 if plan.strategy == "standard" else 300,
+    )
+    state["_tuning_job_id"] = job_id
+    return state
+
+
+async def poll_tuning_node(state):
+    job_id = state.get("_tuning_job_id")
+
+    if job_id is None:
+        # enqueue_tuning_node already handled a skip case above and
+        # advanced past hyperparameter_tuning itself — nothing to poll.
+        return state
 
     outcome = await check_job_result(job_id)
 

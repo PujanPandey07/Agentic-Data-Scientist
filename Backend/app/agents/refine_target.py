@@ -8,18 +8,17 @@ logger = logging.getLogger(__name__)
 
 
 class RefineTargetAgent:
-    def __init__(self):
-        self.llm = get_llm().with_structured_output(RefineTarget)
-
-    async def identify(self, user_query: str) -> RefineTarget:
+    async def identify(self, user_query: str, llm_config: dict | None = None) -> RefineTarget:
         logger.info("Identifying refinement target")
+
+        llm = get_llm(llm_config).with_structured_output(RefineTarget)
 
         messages = [
             {"role": "system", "content": REFINE_TARGET_PROMPT},
             {"role": "user", "content": f"User request: {user_query}"},
         ]
 
-        response = await invoke_with_repair(self.llm, messages)
+        response = await invoke_with_repair(llm, messages)
         logger.info(
             f"Refine target identified: {response.target_stage} "
             f"(confidence={response.confidence})"

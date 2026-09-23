@@ -1,6 +1,6 @@
 # core/models.py
 from datetime import datetime
-from sqlalchemy import ForeignKey
+from sqlalchemy import ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from core.db import Base
 
@@ -34,3 +34,18 @@ class Message(Base):
     role: Mapped[str]
     content: Mapped[str]
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+
+
+# added to core/models.py
+class UserAPIKey(Base):
+    __tablename__ = "user_api_keys"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), unique=True, index=True)
+    provider: Mapped[str]          # "openai" | "anthropic" | "gemini"
+    encrypted_key: Mapped[str]
+    model_name: Mapped[str]
+    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        default=datetime.utcnow, onupdate=datetime.utcnow)

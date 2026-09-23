@@ -1,4 +1,3 @@
-# services/trainning.py
 import time
 import logging
 import warnings
@@ -7,9 +6,15 @@ import numpy as np
 from sklearn.model_selection import cross_val_score, train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.ensemble import (
+    RandomForestClassifier, RandomForestRegressor,
+    GradientBoostingClassifier, GradientBoostingRegressor,
+)
 from sklearn.svm import SVC, SVR
 from sklearn.neural_network import MLPClassifier, MLPRegressor
+from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+from sklearn.naive_bayes import GaussianNB
 from sklearn.base import clone
 from sklearn.exceptions import ConvergenceWarning
 
@@ -326,6 +331,14 @@ class TrainingService:
                 return SVC(kernel="linear", **params)
             elif algo == "neural_network_mlp":
                 return MLPClassifier(**params)
+            elif algo == "knn":
+                return KNeighborsClassifier(**params)
+            elif algo == "decision_tree":
+                return DecisionTreeClassifier(**params)
+            elif algo == "gradient_boosting":
+                return GradientBoostingClassifier(**params)
+            elif algo == "naive_bayes":
+                return GaussianNB(**params)
 
         else:
             if algo == "logistic_regression":
@@ -353,5 +366,13 @@ class TrainingService:
                 return SVR(kernel="linear", **params)
             elif algo == "neural_network_mlp":
                 return MLPRegressor(**params)
+            elif algo == "knn":
+                return KNeighborsRegressor(**params)
+            elif algo == "decision_tree":
+                return DecisionTreeRegressor(**params)
+            elif algo == "gradient_boosting":
+                return GradientBoostingRegressor(**params)
+            elif algo == "naive_bayes":
+                raise ValueError("naive_bayes is for classification only")
 
         raise ValueError(f"Unknown algorithm: {algo}")

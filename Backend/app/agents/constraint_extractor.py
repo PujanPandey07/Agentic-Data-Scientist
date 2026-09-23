@@ -8,18 +8,17 @@ logger = logging.getLogger(__name__)
 
 
 class ConstraintsExtractorAgent:
-    def __init__(self):
-        self.llm = get_llm().with_structured_output(UserConstraints)
-
-    async def extract(self, user_query: str) -> UserConstraints:
+    async def extract(self, user_query: str, llm_config: dict | None = None) -> UserConstraints:
         logger.info("Extracting user constraints")
+
+        llm = get_llm(llm_config).with_structured_output(UserConstraints)
 
         messages = [
             {"role": "system", "content": CONSTRAINTS_EXTRACTION_PROMPT},
             {"role": "user", "content": f"User request: {user_query}"},
         ]
 
-        response = await invoke_with_repair(self.llm, messages)
+        response = await invoke_with_repair(llm, messages)
         logger.info(
             f"Constraints extracted: {len(response.constraints)} found")
         return response

@@ -18,6 +18,7 @@ class GraphState(TypedDict):
     intent: str | None
     direct_answer: str | None
     refine_target: str | None
+    llm_config: dict | None
 
     refine_instruction: str | None
     refine_confidence: float | None
@@ -29,6 +30,7 @@ class GraphState(TypedDict):
     _viz_just_completed: str | None
     _fe_just_completed: str | None
     user_constraints: dict[str, list[str]] | None
+    user_id: int | None
 
     # Dataset
     # Large runtime artifacts (dataframe / train_df / test_df) are intentionally

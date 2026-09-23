@@ -11,8 +11,9 @@ logger = logging.getLogger(__name__)
 
 
 class ModelSelectionPlannerAgent:
-    def __init__(self):
-        self.llm = get_llm().with_structured_output(ModelSelectionPlan)
+    # No self.llm in __init__ — see planner.py for why: a module-level
+    # singleton can't hold a per-user LLM client, since it's built once at
+    # import time before any user's llm_config exists.
 
     async def plan(
         self,
@@ -21,8 +22,11 @@ class ModelSelectionPlannerAgent:
         eda_report: dict,
         feature_engineering_report: dict | None,
         constraints: list[str] | None = None,
+        llm_config: dict | None = None,
     ) -> ModelSelectionPlan:
         logger.info("Starting model selection planning")
+
+        llm = get_llm(llm_config).with_structured_output(ModelSelectionPlan)
 
         fe_section = ""
         if feature_engineering_report:
@@ -41,7 +45,7 @@ Generate the model selection plan now."""
             {"role": "user", "content": user_content},
         ]
 
-        response = await invoke_with_repair(self.llm, messages)
+        response = await invoke_with_repair(llm, messages)
 
         logger.info(
             f"Model selection plan generated: {len(response.candidates)} candidates")

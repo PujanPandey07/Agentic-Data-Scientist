@@ -2,7 +2,7 @@ from langgraph.graph import START, END, StateGraph
 
 from graphs.nodes import (
     confirm_refinement_node, dataset_node, planner_node, initialize_execution_node,
-    advance_execution, refinement_cancelled_node, route_after_confirmation,
+    advance_execution, refinement_cancelled_node, resolve_llm_node, route_after_confirmation,
     router, cleaning_node, eda_node, visualization_node,
     visualization_planner_node, feature_engineering_planner_node, feature_engineering_node,
     model_selection_planner_node, enqueue_training_node, poll_training_node,
@@ -49,9 +49,11 @@ builder.add_node("refinement_cancelled", refinement_cancelled_node)
 builder.add_node("extract_constraints", extract_constraints_node)
 builder.add_node("plan_review", plan_review_node)
 builder.add_node("plan_review_cancelled", plan_review_cancelled_node)
+builder.add_node("resolve_llm", resolve_llm_node)
 
 # Define workflow
-builder.add_edge(START, "intent_router")
+builder.add_edge(START, "resolve_llm")
+builder.add_edge("resolve_llm", "intent_router")
 builder.add_conditional_edges(
     "intent_router",
     route_intent,

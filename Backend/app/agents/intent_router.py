@@ -8,11 +8,15 @@ logger = logging.getLogger(__name__)
 
 
 class IntentRouterAgent:
-    def __init__(self):
-        self.llm = get_llm().with_structured_output(IntentClassification)
-
-    async def classify(self, user_query: str, has_prior_report: bool) -> IntentClassification:
+    async def classify(
+        self,
+        user_query: str,
+        has_prior_report: bool,
+        llm_config: dict | None = None,
+    ) -> IntentClassification:
         logger.info("Classifying user intent")
+
+        llm = get_llm(llm_config).with_structured_output(IntentClassification)
 
         messages = [
             {"role": "system", "content": INTENT_ROUTER_PROMPT},
@@ -23,7 +27,7 @@ A previous analysis report exists in this session: {has_prior_report}
 Classify the intent now."""},
         ]
 
-        response = await invoke_with_repair(self.llm, messages)
+        response = await invoke_with_repair(llm, messages)
         logger.info(
             f"Intent classified: {response.intent} — {response.reasoning}")
         return response

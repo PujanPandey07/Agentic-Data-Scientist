@@ -12,20 +12,19 @@ logger = logging.getLogger(__name__)
 
 
 class VisualizationPlannerAgent:
-
-    def __init__(self):
-        self.llm = get_llm().with_structured_output(
-            VisualizationPlanResponse
-        )
-
     async def plan_visualizations(
         self,
         user_query: str,
         dataset_summary,
         eda_report: dict,
         constraints: list[str] | None = None,
+        llm_config: dict | None = None,
     ) -> VisualizationPlanResponse:
         logger.info("Starting visualization planning")
+
+        llm = get_llm(llm_config).with_structured_output(
+            VisualizationPlanResponse
+        )
 
         messages = [
             {
@@ -46,7 +45,7 @@ EDA Report:
             },
         ]
 
-        response = await invoke_with_repair(self.llm, messages)
+        response = await invoke_with_repair(llm, messages)
 
         logger.info(
             f"Visualization plan generated: {len(response.visualizations)} charts")

@@ -1,19 +1,25 @@
 from pydantic import BaseModel, Field
 from typing import Literal, Optional
 
+ALGORITHM_NAMES = Literal[
+    "logistic_regression",
+    "random_forest",
+    "xgboost",
+    "lightgbm",
+    "svm_rbf",
+    "svm_linear",
+    "neural_network_mlp",
+    "knn",
+    "decision_tree",
+    "gradient_boosting",
+    "naive_bayes",
+]
+
 
 class ModelCandidate(BaseModel):
     """A single model the training service should try."""
 
-    algorithm: Literal[
-        "logistic_regression",
-        "random_forest",
-        "xgboost",
-        "lightgbm",
-        "svm_rbf",
-        "svm_linear",
-        "neural_network_mlp",
-    ] = Field(
+    algorithm: ALGORITHM_NAMES = Field(
         description="The ML algorithm to train and evaluate"
     )
 
@@ -86,15 +92,7 @@ class ModelSelectionPlan(BaseModel):
         default_factory=list,
         description="Why certain algorithms were excluded. Shows the LLM's reasoning."
     )
-    forced_algorithm: Optional[Literal[
-        "logistic_regression",
-        "random_forest",
-        "xgboost",
-        "lightgbm",
-        "svm_rbf",
-        "svm_linear",
-        "neural_network_mlp",
-    ]] = Field(
+    forced_algorithm: Optional[ALGORITHM_NAMES] = Field(
         default=None,
         description=(
             "Set ONLY if the user's query explicitly names a specific algorithm "

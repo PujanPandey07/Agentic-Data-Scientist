@@ -47,6 +47,26 @@ ALGORITHM_KEYWORDS = {
 
     "neural network": "neural_network_mlp",
     "mlp": "neural_network_mlp",
+
+    "gradient boosting": "gradient_boosting",
+    "gradientboosting": "gradient_boosting",
+    "gbc": "gradient_boosting",
+    "sklearn gradient boosting": "gradient_boosting",
+
+    "decision tree": "decision_tree",
+    "decisiontree": "decision_tree",
+    "dtree": "decision_tree",
+    "cart": "decision_tree",
+
+    "knn": "knn",
+    "k-nearest neighbors": "knn",
+    "k nearest neighbor": "knn",
+    "nearest neighbors": "knn",
+
+    "naive bayes": "naive_bayes",
+    "naivebayes": "naive_bayes",
+    "gaussian nb": "naive_bayes",
+    "gaussiannb": "naive_bayes",
 }
 
 

@@ -11,9 +11,6 @@ logger = logging.getLogger(__name__)
 
 
 class FeatureEngineeringPlannerAgent:
-    def __init__(self):
-        self.llm = get_llm().with_structured_output(FeatureEngineeringPlan)
-
     async def plan(
         self,
         user_query: str,
@@ -21,8 +18,12 @@ class FeatureEngineeringPlannerAgent:
         eda_report: dict,
         target_column: str | None = None,
         constraints: list[str] | None = None,
+        llm_config: dict | None = None,
     ) -> FeatureEngineeringPlan:
         logger.info("Starting feature engineering planning")
+
+        llm = get_llm(llm_config).with_structured_output(
+            FeatureEngineeringPlan)
 
         target_section = (
             f"\nTarget Column (DO NOT modify, encode, drop, or reference in ANY step): {target_column}"
@@ -41,9 +42,12 @@ Generate the feature engineering plan now."""
             {"role": "user", "content": user_content},
         ]
 
-        response = await invoke_with_repair(self.llm, messages)
+        response = await invoke_with_repair(llm, messages)
 
         logger.info(
             f"Feature engineering plan generated: {len(response.steps)} steps")
 
         return response
+
+
+feature_engineering_planner_agent = FeatureEngineeringPlannerAgent()

@@ -1,4 +1,3 @@
-# services/hyper_parameters_tuning.py
 import os
 import time
 import logging
@@ -26,11 +25,6 @@ class HyperparameterTuningService:
         X = df.drop(columns=[target_column])
         y = df[target_column]
 
-        # Same defensive guard as TrainingService — drop any raw
-        # non-numeric columns left behind by feature engineering (e.g. a
-        # 'col' string column sitting alongside its 'col_encoded' numeric
-        # version) before handing data to a model that requires numeric
-        # input.
         non_numeric_cols = X.select_dtypes(
             exclude=["number", "bool"]).columns.tolist()
         if non_numeric_cols:
@@ -158,12 +152,6 @@ class HyperparameterTuningService:
             return XGBRegressor(**params)
 
         elif algorithm == "logistic_regression":
-            # NOTE: `penalty` (discrete ["l1", "l2"]) is deprecated in this
-            # sklearn version in favor of a continuous `l1_ratio` (0.0 = old
-            # 'l2', 1.0 = old 'l1', anything between = elasticnet-style
-            # blending). This also gives Optuna a continuum to search
-            # instead of only two discrete endpoints — strictly more
-            # expressive, not just a warning fix.
             params = {
                 "C": trial.suggest_float("C", 0.001, 100, log=True),
                 "l1_ratio": trial.suggest_float("l1_ratio", 0.0, 1.0),
@@ -221,6 +209,50 @@ class HyperparameterTuningService:
             }
             from sklearn.neural_network import MLPClassifier, MLPRegressor
             return MLPClassifier(**params) if problem_type == "classification" else MLPRegressor(**params)
+
+        elif algorithm == "knn":
+            params = {
+                "n_neighbors": trial.suggest_int("n_neighbors", 3, 30),
+                "weights": trial.suggest_categorical("weights", ["uniform", "distance"]),
+                "p": trial.suggest_categorical("p", [1, 2]),
+            }
+            from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+            return KNeighborsClassifier(**params) if problem_type == "classification" else KNeighborsRegressor(**params)
+
+        elif algorithm == "decision_tree":
+            params = {
+                "max_depth": trial.suggest_int("max_depth", 2, 30),
+                "min_samples_split": trial.suggest_int("min_samples_split", 2, 20),
+                "min_samples_leaf": trial.suggest_int("min_samples_leaf", 1, 10),
+                "criterion": trial.suggest_categorical(
+                    "criterion",
+                    ["gini", "entropy"] if problem_type == "classification"
+                    else ["squared_error", "friedman_mse"]
+                ),
+            }
+            from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+            return DecisionTreeClassifier(**params) if problem_type == "classification" else DecisionTreeRegressor(**params)
+
+        elif algorithm == "gradient_boosting":
+            params = {
+                "n_estimators": trial.suggest_int("n_estimators", 50, 300),
+                "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
+                "max_depth": trial.suggest_int("max_depth", 2, 10),
+                "subsample": trial.suggest_float("subsample", 0.5, 1.0),
+            }
+            from sklearn.ensemble import GradientBoostingClassifier, GradientBoostingRegressor
+            return GradientBoostingClassifier(**params) if problem_type == "classification" else GradientBoostingRegressor(**params)
+
+        elif algorithm == "naive_bayes":
+            # Classification-only. TrainingService._get_model already raises
+            # if naive_bayes is paired with a regression problem_type before
+            # tuning ever gets called, so this branch should only ever see
+            # problem_type == "classification" in practice.
+            params = {
+                "var_smoothing": trial.suggest_float("var_smoothing", 1e-11, 1e-7, log=True),
+            }
+            from sklearn.naive_bayes import GaussianNB
+            return GaussianNB(**params)
 
         logger.error(f"Tuning not implemented for algorithm: {algorithm}")
         raise ValueError(f"Tuning not implemented for: {algorithm}")

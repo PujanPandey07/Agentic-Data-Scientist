@@ -1,3 +1,5 @@
+from services.llm_config import resolve_user_llm_config
+from core.db import async_session
 from services.job_queue import enqueue_training_job, check_job_result
 import logging
 from sklearn.model_selection import train_test_split as sk_train_test_split
@@ -197,6 +199,7 @@ async def planner_node(state):
     plan = await planner_agent.plan(
         state["user_query"],
         state["dataset_summary"],
+        state.get("llm_config"),
     )
 
     print("\n========== PLANNER RESULT ==========")
@@ -397,6 +400,7 @@ async def visualization_planner_node(state):
         eda_report=eda_report,
         constraints=(state.get("user_constraints")
                      or {}).get("visualization", []),
+        llm_config=state.get("llm_config"),
     )
 
     # Partial-update return — NOT the whole state. Two nodes running
@@ -462,6 +466,7 @@ async def model_selection_planner_node(state):
         eda_report=state.get("eda_report", {}),
         feature_engineering_report=state.get("feature_engineering_report"),
         constraints=constraints,
+        llm_config=state.get("llm_config"),
     )
 
     # Safety net: if the LLM somehow missed the constraint, enforce it here
@@ -521,6 +526,7 @@ async def feature_engineering_planner_node(state):
         target_column=state.get("target_column"),
         constraints=(state.get("user_constraints") or {}
                      ).get("feature_engineering", []),
+        llm_config=state.get("llm_config"),
     )
 
     return {"feature_engineering_plan": plan}
@@ -891,6 +897,8 @@ async def intent_router_node(state):
     classification = await intent_router_agent.classify(
         user_query=user_query,
         has_prior_report=has_prior_report,
+        llm_config=state.get("llm_config"),
+
     )
 
     intent = classification.intent
@@ -907,7 +915,7 @@ async def intent_router_node(state):
 
 
 async def direct_answer_node(state):
-    llm = get_llm()
+    llm = get_llm(state.get("llm_config"))
     conversation_id = state.get("conversation_id") or state.get("dataset_id")
 
     if state.get("no_prior_analysis"):
@@ -973,7 +981,7 @@ async def direct_answer_node(state):
 
 
 async def refine_target_node(state):
-    result = await refine_target_agent.identify(state.get("user_query", ""))
+    result = await refine_target_agent.identify(state.get("user_query", ""), state.get("llm_config"))
 
     state["refine_target"] = result.target_stage
     state["refine_instruction"] = result.instruction
@@ -1036,7 +1044,7 @@ async def confirm_refinement_node(state):
         refine_instruction = state.get("refine_instruction", "")
 
         if refine_instruction:
-            new_constraints = await constraints_extractor_agent.extract(refine_instruction)
+            new_constraints = await constraints_extractor_agent.extract(refine_instruction, state.get("llm_config"))
             existing = dict(state.get("user_constraints") or {})
             for c in new_constraints.constraints:
                 existing[c.stage] = [c.instruction]
@@ -1061,7 +1069,7 @@ async def refinement_cancelled_node(state):
 
 
 async def extract_constraints_node(state):
-    result = await constraints_extractor_agent.extract(state.get("user_query", ""))
+    result = await constraints_extractor_agent.extract(state.get("user_query", ""), state.get("llm_config"))
 
     constraints_by_stage: dict[str, list[str]] = {}
     for c in result.constraints:
@@ -1149,7 +1157,8 @@ async def plan_review_node(state):
         state["user_query"] = combined_query
 
         new_plan = await planner_agent.plan(
-            combined_query, state.get("dataset_summary")
+            combined_query, state.get(
+                "dataset_summary"), state.get("llm_config")
         )
 
         # Deterministic override: if the user's edit explicitly named a
@@ -1171,7 +1180,7 @@ async def plan_review_node(state):
         state["analysis_plan"] = new_plan
         state["target_column"] = new_plan.target_column
 
-        new_constraints = await constraints_extractor_agent.extract(combined_query)
+        new_constraints = await constraints_extractor_agent.extract(combined_query, state.get("llm_config"))
         merged_constraints = dict(constraints)
         for c in new_constraints.constraints:
             merged_constraints[c.stage] = [c.instruction]
@@ -1196,4 +1205,14 @@ def route_after_plan_review(state):
 
 async def plan_review_cancelled_node(state):
     print("\nPlan rejected by user. No changes made.\n")
+    return state
+
+# added to graphs/nodes.py
+
+
+async def resolve_llm_node(state):
+    user_id = state.get("user_id")
+    async with async_session() as session:
+        llm_config = await resolve_user_llm_config(session, user_id)
+    state["llm_config"] = llm_config
     return state

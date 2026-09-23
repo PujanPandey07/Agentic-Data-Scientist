@@ -40,6 +40,13 @@ async def create_run(
     initial_state = {
         "user_query": payload.user_query,
         "dataset_id": payload.dataset_id,
+        # NEW: needed by resolve_llm_node (runs right after START, before
+        # ANY other node — including the direct_answer path, which never
+        # touches dataset_node) so every LLM call in this run can use the
+        # user's own configured provider/key/model instead of always
+        # falling back to the shared default.
+        "user_id": user_id,
+        "llm_config": None,
         "dataframe": None,
         "dataset_summary": None,
         "analysis_plan": None,

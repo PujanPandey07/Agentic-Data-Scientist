@@ -1,7 +1,7 @@
 import json
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from services.runtime_state import runtime_state_store
 
@@ -25,7 +25,7 @@ class ReportingService:
         ran_evaluation = "evaluation" in completed
 
         report = {
-            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "generated_at": datetime.now(timezone.utc).isoformat(),
             "user_query": state.get("user_query") or "N/A",
             "dataset_id": state.get("dataset_id") or "N/A",
             "target_column": state.get("target_column") or "N/A",

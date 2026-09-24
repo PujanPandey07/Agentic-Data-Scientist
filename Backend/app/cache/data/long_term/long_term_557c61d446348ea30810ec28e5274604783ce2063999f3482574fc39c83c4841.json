@@ -1,0 +1,12 @@
+{
+  "memories": [
+    {
+      "memory_id": "3780846ef0ac8175fa5e3c715fb9b052481d868d416c6a8682e19d3a8ba27129",
+      "owner_id": "43a04245-3c42-4626-80de-c4c185c53ebc",
+      "topic": "latest_analysis_conclusion",
+      "content": "Weak fit. Review features or collect more data.",
+      "importance": 0.75,
+      "updated_at": "2026-09-24T04:38:30.364608+00:00"
+    }
+  ]
+}

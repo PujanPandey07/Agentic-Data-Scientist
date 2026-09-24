@@ -35,7 +35,6 @@ from services.cleaning_service import cleaning_service
 from agents.planner import planner_agent
 from services.dataset_service import dataset_service
 from analysis.inspector import dataset_inspector
-from services.cleaning_service import CleaningService
 from services.executiopn_service import execution_service
 from agents.visualization_planner import visualization_planner_agent
 from services.job_queue import enqueue_training_job, check_job_result, enqueue_tuning_job
@@ -333,9 +332,20 @@ async def cleaning_node(state):
 
     _set_runtime_dataframe(state, cleaned_dataframe)
     if target_column is not None:
-        state["target_column"] = cleaning_service.standardize_column_name(
-            target_column
-        )
+        clean_target = cleaning_service.standardize_column_name(target_column)
+        state["target_column"] = clean_target
+        if state.get("analysis_plan") is not None:
+            state["analysis_plan"].target_column = clean_target
+
+    summary = state.get("dataset_summary")
+    if summary is not None:
+        if hasattr(summary, "column_names") and summary.column_names:
+            summary.column_names = [cleaning_service.standardize_column_name(c) for c in summary.column_names]
+        if hasattr(summary, "numerical_columns") and summary.numerical_columns:
+            summary.numerical_columns = [cleaning_service.standardize_column_name(c) for c in summary.numerical_columns]
+        if hasattr(summary, "categorical_columns") and summary.categorical_columns:
+            summary.categorical_columns = [cleaning_service.standardize_column_name(c) for c in summary.categorical_columns]
+
     state["cleaning_report"] = report
     # Data changed — any cached train/test split is now stale.
     state["train_df"] = None
@@ -544,6 +554,7 @@ async def feature_engineering_node(state):
             "feature_engineering_report": {
                 "error": "Missing dataframe or feature engineering plan"
             },
+            "_fe_just_completed": "Skipped: missing dataframe or feature engineering plan",
         }
 
     # IMPORTANT:
@@ -561,6 +572,7 @@ async def feature_engineering_node(state):
             "feature_engineering_report": {
                 "error": "Failed to create train/test split before feature engineering"
             },
+            "_fe_just_completed": "Skipped: failed to create train/test split before feature engineering",
         }
 
     service = FeatureEngineeringService()
@@ -1000,6 +1012,10 @@ async def refine_target_node(state):
 def route_intent(state):
     intent = state.get("intent")
     if intent == "run_pipeline":
+        return "run_pipeline"
+    if intent == "resume_pipeline":
+        if state.get("current_task") or state.get("remaining_tasks"):
+            return "resume_pipeline"
         return "run_pipeline"
     if intent == "refine_step":
         return "refine_step"

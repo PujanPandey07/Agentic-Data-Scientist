@@ -16,6 +16,7 @@ from api.reports import router as reports_router
 from api.auth import router as auth_router
 from api.conversations import router as conversations_router
 from api.jobs import router as jobs_router
+from api.api_key import router as api_key_router
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -69,3 +70,5 @@ app.include_router(reports_router)
 app.include_router(auth_router)
 app.include_router(conversations_router)
 app.include_router(jobs_router)
+app.include_router(api_key_router)
+

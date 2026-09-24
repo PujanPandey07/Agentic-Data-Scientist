@@ -6,15 +6,12 @@ from services.hyper_parameters_tuning import HyperparameterTuningService
 from services.runtime_state import runtime_state_store
 from schema.model_selection import ModelSelectionPlan
 from services.trainning import TrainingService
-from services.job_queue import publish_job_complete
+from services.job_queue import publish_job_complete, REDIS_HOST, REDIS_PORT
 import os
 from arq.connections import RedisSettings
 from dotenv import load_dotenv
 
 load_dotenv()
-
-REDIS_HOST = "localhost"
-REDIS_PORT = 6380
 
 
 async def startup(ctx):

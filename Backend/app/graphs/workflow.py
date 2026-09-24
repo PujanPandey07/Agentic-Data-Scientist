@@ -59,6 +59,7 @@ builder.add_conditional_edges(
     route_intent,
     {
         "run_pipeline": "dataset",
+        "resume_pipeline": "router",
         "direct_answer": "direct_answer",
         "refine_step": "refine_target",
     },

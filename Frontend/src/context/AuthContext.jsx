@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
-import axios from "axios";
-import { setAccessToken as setAxiosAccessToken } from "../api/axiosstance";
+import axiosInstance, { setAccessToken as setAxiosAccessToken } from "../api/axiosstance";
 import { AuthContext } from "./AuthContextValue";
 
 export function AuthProvider({ children }) {
@@ -12,19 +11,21 @@ export function AuthProvider({ children }) {
     setAxiosAccessToken(token);
   }
 
-  function logout() {
-    setAccessTokenState(null);
-    setAxiosAccessToken(null);
+  async function logout() {
+    try {
+      await axiosInstance.post("/api/auth/logout");
+    } catch {
+      // Backend logout failed or unreachable, continue clearing local state
+    } finally {
+      setAccessTokenState(null);
+      setAxiosAccessToken(null);
+    }
   }
 
   useEffect(() => {
     async function tryRefresh() {
       try {
-        const response = await axios.post(
-          "http://127.0.0.1:8000/api/auth/refresh",
-          {},
-          { withCredentials: true }
-        );
+        const response = await axiosInstance.post("/api/auth/refresh");
         login(response.data.access_token);
       } catch {
         // no valid refresh cookie — not logged in, that's fine

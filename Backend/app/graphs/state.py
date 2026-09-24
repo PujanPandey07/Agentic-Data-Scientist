@@ -64,11 +64,19 @@ class GraphState(TypedDict):
     trained_model_path: str | None   # NEW — set by training node
     _training_job_id: str | None
 
-  # evaluation
+    # evaluation
     evaluation_report: dict | None
 
     hyperparameter_tuning_report: dict | None
     tuned_model_path: str | None
+    # Was NEVER declared here — enqueue_tuning_node/poll_tuning_node wrote
+    # to it, but LangGraph only persists fields that exist on GraphState,
+    # so every write silently vanished the instant enqueue_tuning_node
+    # returned. poll_tuning_node then always read None, never called
+    # interrupt(), and router kept redispatching straight back to
+    # enqueue_tuning_node — an infinite loop (each iteration DID enqueue
+    # a real background job) until LangGraph's recursion limit killed it.
+    _tuning_job_id: str | None
 
     # reporting
     final_report: dict | None

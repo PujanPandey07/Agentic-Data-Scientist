@@ -124,6 +124,15 @@ async def chat(
     is_paused = bool(getattr(snapshot, "next", None)) and any(
         getattr(task, "interrupts", None) for task in tasks
     )
+    active_interrupt_type = None
+    for task in tasks:
+        if getattr(task, "interrupts", None):
+            val = getattr(task.interrupts[0], "value", None)
+            if isinstance(val, dict):
+                active_interrupt_type = val.get("type")
+            break
+    is_job_resume = (active_interrupt_type == "job_status")
+
     # Captured BEFORE the call — this is which node was about to run this
     # step. If the call crashes, this tells us where it crashed, since we
     # can't get that from an exception that gives no node context.
@@ -141,12 +150,15 @@ async def chat(
                 "approved": payload.decision.approved,
                 "edit_instruction": payload.decision.edit_instruction,
             }
-            # Log the decision itself as the "user" turn, in readable form.
-            user_message_content = (
-                payload.decision.edit_instruction
-                if payload.decision.edit_instruction
-                else ("approved" if payload.decision.approved else "rejected")
-            )
+            # Only log user turn if this was a human decision, not an automated background job resume
+            if is_job_resume:
+                user_message_content = None
+            else:
+                user_message_content = (
+                    payload.decision.edit_instruction
+                    if payload.decision.edit_instruction
+                    else ("approved" if payload.decision.approved else "rejected")
+                )
             result = await graph.ainvoke(Command(resume=resume_payload), config=config)
         else:
             if payload.user_query is None:
@@ -158,6 +170,7 @@ async def chat(
             follow_up_state = {
                 "user_query": payload.user_query,
                 "dataset_id": snapshot_values.get("dataset_id"),
+                "user_id": user_id,
             }
             result = await graph.ainvoke(follow_up_state, config=config)
 
@@ -252,11 +265,12 @@ async def chat(
     else:
         assistant_message_content = "Pipeline step completed."
 
-    session.add(Message(
-        conversation_id=conversation.id,
-        role="user",
-        content=user_message_content,
-    ))
+    if user_message_content is not None:
+        session.add(Message(
+            conversation_id=conversation.id,
+            role="user",
+            content=user_message_content,
+        ))
     session.add(Message(
         conversation_id=conversation.id,
         role="assistant",

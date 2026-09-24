@@ -122,14 +122,14 @@ function Composer({ onStart }) {
           }`}
           onClick={() => document.getElementById("fileInput").click()}
         >
-          <input id="fileInput" type="file" accept=".csv"
+          <input id="fileInput" type="file" accept=".csv,.xlsx,.xls"
             onChange={(e) => { setFile(e.target.files[0]); setQuickResult(null); }} className="hidden" />
           {file ? (
             <p className="text-ink text-sm font-medium">{file.name}</p>
           ) : (
             <>
-              <p className="text-ink text-sm font-medium mb-1">Drop your CSV here, or click to browse</p>
-              <p className="text-muted text-xs">CSV files only</p>
+              <p className="text-ink text-sm font-medium mb-1">Drop your file here, or click to browse</p>
+              <p className="text-muted text-xs">CSV, XLSX, or XLS files</p>
             </>
           )}
         </div>

@@ -4,8 +4,10 @@ from arq import create_pool
 from arq.connections import RedisSettings
 from arq.jobs import Job, JobStatus
 
-REDIS_HOST = "localhost"
-REDIS_PORT = 6380
+import os
+
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6380"))
 
 _pool = None
 _redis = None  # raw redis client used only for pub/sub

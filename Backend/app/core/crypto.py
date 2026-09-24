@@ -16,9 +16,12 @@ def get_fernet() -> Fernet:
     if _fernet is None:
         key = os.getenv("API_KEY_ENCRYPTION_SECRET")
         if not key:
-            raise ValueError(
-                "API_KEY_ENCRYPTION_SECRET not found in environment variables"
-            )
+            if os.getenv("ENVIRONMENT") == "production":
+                raise RuntimeError(
+                    "API_KEY_ENCRYPTION_SECRET must be set in production"
+                )
+            # Safe deterministic dev fallback key
+            key = "4_YR3pfH1Ff04fj0_-EU8-ZvPj9F0OF3vDUVzNNbbHg="
         _fernet = Fernet(key.encode())
     return _fernet
 

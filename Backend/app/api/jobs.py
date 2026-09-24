@@ -12,10 +12,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 
 from core.security import decode_token
-from services.job_queue import check_job_result
-
-REDIS_HOST = "localhost"
-REDIS_PORT = 6380
+from services.job_queue import check_job_result, REDIS_HOST, REDIS_PORT
 
 # How long (seconds) we'll keep the SSE connection open waiting for a job.
 # Training rarely exceeds this; if it does, the frontend gets a "timeout"

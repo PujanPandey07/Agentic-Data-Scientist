@@ -1,0 +1,468 @@
+{
+  "dataset_id": "43a04245-3c42-4626-80de-c4c185c53ebc",
+  "generated_at": "2026-09-24T04:38:30.322803+00:00",
+  "dataset": {
+    "rows": 305,
+    "columns": 4,
+    "column_names": [
+      "30",
+      "64",
+      "1",
+      "1.1"
+    ],
+    "data_types": {
+      "30": "int64",
+      "64": "int64",
+      "1": "int64",
+      "1.1": "int64"
+    },
+    "numerical_columns": [
+      "30",
+      "64",
+      "1",
+      "1.1"
+    ],
+    "categorical_columns": [],
+    "missing_values": {
+      "30": 0,
+      "64": 0,
+      "1": 0,
+      "1.1": 0
+    },
+    "duplicate_rows": 17,
+    "memory_usage": "9.66 KB",
+    "has_missing_values": false,
+    "has_duplicates": true,
+    "potential_target_columns": [],
+    "target_column": "1",
+    "problem_type": "regression",
+    "final_overview": {
+      "final_shape": [
+        288,
+        5
+      ],
+      "columns": [
+        "30",
+        "64",
+        "1",
+        "1.1",
+        "30_64_multiply"
+      ]
+    }
+  },
+  "cleaning": {
+    "original_rows": 305,
+    "final_rows": 288,
+    "duplicates_removed": 17,
+    "missing_values_remaining": 0
+  },
+  "eda": {
+    "shape": {
+      "rows": 288,
+      "columns": 4
+    },
+    "column_names": [
+      "30",
+      "64",
+      "1",
+      "1.1"
+    ],
+    "numerical_columns": [
+      "30",
+      "64",
+      "1",
+      "1.1"
+    ],
+    "categorical_columns": [],
+    "numerical_summary": {
+      "30": {
+        "count": 288.0,
+        "mean": 52.5,
+        "std": 10.8149,
+        "min": 30.0,
+        "25%": 44.0,
+        "50%": 52.0,
+        "75%": 60.0,
+        "max": 83.0
+      },
+      "64": {
+        "count": 288.0,
+        "mean": 62.9028,
+        "std": 3.2809,
+        "min": 58.0,
+        "25%": 60.0,
+        "50%": 63.0,
+        "75%": 66.0,
+        "max": 69.0
+      },
+      "1": {
+        "count": 288.0,
+        "mean": 4.2326,
+        "std": 7.3355,
+        "min": 0.0,
+        "25%": 0.0,
+        "50%": 1.0,
+        "75%": 5.0,
+        "max": 52.0
+      },
+      "1.1": {
+        "count": 288.0,
+        "mean": 1.2743,
+        "std": 0.4469,
+        "min": 1.0,
+        "25%": 1.0,
+        "50%": 1.0,
+        "75%": 2.0,
+        "max": 2.0
+      }
+    },
+    "categorical_summary": {},
+    "missing_values": {
+      "30": 0,
+      "64": 0,
+      "1": 0,
+      "1.1": 0
+    },
+    "correlation": {
+      "30": {
+        "30": 1.0,
+        "64": 0.0914,
+        "1": -0.065,
+        "1.1": 0.0789
+      },
+      "64": {
+        "30": 0.0914,
+        "64": 1.0,
+        "1": -0.0044,
+        "1.1": -0.0055
+      },
+      "1": {
+        "30": -0.065,
+        "64": -0.0044,
+        "1": 1.0,
+        "1.1": 0.2749
+      },
+      "1.1": {
+        "30": 0.0789,
+        "64": -0.0055,
+        "1": 0.2749,
+        "1.1": 1.0
+      }
+    }
+  },
+  "visualization": {
+    "num_charts": 5,
+    "charts": [
+      {
+        "chart_type": "heatmap",
+        "columns": [
+          "30",
+          "64",
+          "1",
+          "1.1",
+          "30_64_multiply"
+        ],
+        "path": "outputs\\charts\\43a04245-3c42-4626-80de-c4c185c53ebc\\correlation_heatmap.png"
+      },
+      {
+        "chart_type": "histogram",
+        "x_column": "1",
+        "path": "outputs\\charts\\43a04245-3c42-4626-80de-c4c185c53ebc\\1_histogram.png"
+      },
+      {
+        "chart_type": "scatter",
+        "x_column": "30",
+        "y_column": "1",
+        "group_by": null,
+        "path": "outputs\\charts\\43a04245-3c42-4626-80de-c4c185c53ebc\\30_vs_1_scatter.png"
+      },
+      {
+        "chart_type": "scatter",
+        "x_column": "64",
+        "y_column": "1",
+        "group_by": null,
+        "path": "outputs\\charts\\43a04245-3c42-4626-80de-c4c185c53ebc\\64_vs_1_scatter.png"
+      },
+      {
+        "chart_type": "scatter",
+        "x_column": "1.1",
+        "y_column": "1",
+        "group_by": null,
+        "path": "outputs\\charts\\43a04245-3c42-4626-80de-c4c185c53ebc\\1.1_vs_1_scatter.png"
+      }
+    ]
+  },
+  "feature_engineering": {
+    "original_train_shape": [
+      230,
+      4
+    ],
+    "original_test_shape": [
+      58,
+      4
+    ],
+    "final_train_shape": [
+      230,
+      5
+    ],
+    "final_test_shape": [
+      58,
+      5
+    ],
+    "strategy": "balanced",
+    "steps_executed": 3,
+    "steps_failed": 0,
+    "step_details": [
+      {
+        "action": "drop_high_correlation",
+        "columns": [
+          "30",
+          "64",
+          "1.1"
+        ],
+        "status": "success",
+        "details": "Dropped highly correlated columns based on train data: []",
+        "target_column_excluded": false
+      },
+      {
+        "action": "create_interaction",
+        "columns": [
+          "30",
+          "64"
+        ],
+        "status": "success",
+        "details": "Created interaction column 30_64_multiply",
+        "target_column_excluded": false
+      },
+      {
+        "action": "standard_scale",
+        "columns": [
+          "30",
+          "64",
+          "1.1",
+          "30_64_interaction"
+        ],
+        "status": "success",
+        "details": "Standard scaled ['30', '64', '1.1'] using train data only",
+        "target_column_excluded": false
+      }
+    ],
+    "columns_added": [
+      "30_64_multiply"
+    ],
+    "columns_removed": [],
+    "warnings": [
+      "Do NOT apply any transformation to the target column '1'.",
+      "Scaling statistics (mean, std) must be fitted on the training split only and applied to validation/test splits to avoid data leakage."
+    ],
+    "notes": [
+      "Balanced strategy inferred from a generic request for a full regression pipeline.",
+      "No categorical encoding needed as all features are numeric.",
+      "No log/sqrt transforms applied because skewness > 2.0 was not observed in the EDA summary.",
+      "If later analysis shows strong non\u2011linear relationships, consider polynomial or binning features, but be aware of dimensionality increase."
+    ],
+    "target_column_guard_triggered": 0
+  },
+  "model_selection": {
+    "strategy": "standard",
+    "sample_size": null,
+    "candidates": [
+      {
+        "algorithm": "decision_tree",
+        "reason": "Dataset is very small (230 training rows) and all features are numeric and already scaled. A shallow Decision Tree trains instantly, provides a quick performance floor, and can capture simple non\u2011linear patterns including the engineered interaction term.",
+        "estimated_time_seconds": 1,
+        "hyperparams": {
+          "max_depth": 5,
+          "random_state": 42
+        },
+        "priority": 1
+      },
+      {
+        "algorithm": "random_forest",
+        "reason": "With low\u2011dimensional numeric data, a modest Random Forest adds robustness and can model more complex non\u2011linear relationships without overfitting on 230 rows, while still being fast to train.",
+        "estimated_time_seconds": 5,
+        "hyperparams": {
+          "max_depth": 5,
+          "n_estimators": 100,
+          "random_state": 42
+        },
+        "priority": 2
+      },
+      {
+        "algorithm": "xgboost",
+        "reason": "Gradient\u2011boosted trees often achieve the best accuracy on small tabular regression problems, especially when interaction features exist. XGBoost with shallow depth remains quick on this dataset and can capture higher\u2011order interactions.",
+        "estimated_time_seconds": 10,
+        "hyperparams": {
+          "learning_rate": 0.1,
+          "max_depth": 3,
+          "n_estimators": 100,
+          "objective": "reg:squarederror",
+          "random_state": 42
+        },
+        "priority": 3
+      }
+    ],
+    "cv_folds": 5,
+    "scoring_metric": "neg_mean_absolute_error",
+    "time_budget_minutes": 8,
+    "notes": [
+      "neural_network_mlp excluded: dataset < 1K rows, deep learning would overfit and adds unnecessary complexity.",
+      "svm_rbf and svm_linear excluded: while feasible, they provide little advantage over tree\u2011based models for this small, already scaled numeric data.",
+      "lightgbm excluded: performance similar to XGBoost; keeping candidate count to three as per limits.",
+      "naive_bayes and knn excluded: not appropriate for regression tasks."
+    ],
+    "forced_algorithm": null
+  },
+  "training": {
+    "strategy": "standard",
+    "sample_size": null,
+    "used_sampling": false,
+    "full_dataset_shape": [
+      230,
+      4
+    ],
+    "sample_shape": [
+      230,
+      4
+    ],
+    "cv_folds": 5,
+    "scoring_metric": "neg_mean_absolute_error",
+    "time_budget_minutes": 8,
+    "time_spent_seconds": 2.58,
+    "candidates_results": [
+      {
+        "algorithm": "decision_tree",
+        "status": "success",
+        "mean_cv_score": -5.366881175913368,
+        "std_cv_score": 1.1375639610845563,
+        "cv_scores": [
+          -5.368591062501127,
+          -5.172794117647059,
+          -4.154951234981121,
+          -4.658755911754413,
+          -7.4793135526831165
+        ],
+        "estimated_time_seconds": 1,
+        "actual_time_seconds": 0.08,
+        "hyperparams": {
+          "max_depth": 5,
+          "random_state": 42
+        },
+        "reason": "Dataset is very small (230 training rows) and all features are numeric and already scaled. A shallow Decision Tree trains instantly, provides a quick performance floor, and can capture simple non\u2011linear patterns including the engineered interaction term.",
+        "converged": true
+      },
+      {
+        "algorithm": "random_forest",
+        "status": "success",
+        "mean_cv_score": -5.2201674597114245,
+        "std_cv_score": 1.0806464789684331,
+        "cv_scores": [
+          -4.610382470551797,
+          -5.055888622486418,
+          -4.235396858754399,
+          -4.890527936653252,
+          -7.308641410111255
+        ],
+        "estimated_time_seconds": 5,
+        "actual_time_seconds": 0.88,
+        "hyperparams": {
+          "max_depth": 5,
+          "n_estimators": 100,
+          "random_state": 42
+        },
+        "reason": "With low\u2011dimensional numeric data, a modest Random Forest adds robustness and can model more complex non\u2011linear relationships without overfitting on 230 rows, while still being fast to train.",
+        "converged": true
+      },
+      {
+        "algorithm": "xgboost",
+        "status": "success",
+        "mean_cv_score": -5.466655921936035,
+        "std_cv_score": 1.176779012407806,
+        "cv_scores": [
+          -4.748265266418457,
+          -4.794886589050293,
+          -5.24350118637085,
+          -4.755832672119141,
+          -7.7907938957214355
+        ],
+        "estimated_time_seconds": 10,
+        "actual_time_seconds": 1.61,
+        "hyperparams": {
+          "learning_rate": 0.1,
+          "max_depth": 3,
+          "n_estimators": 100,
+          "objective": "reg:squarederror",
+          "random_state": 42
+        },
+        "reason": "Gradient\u2011boosted trees often achieve the best accuracy on small tabular regression problems, especially when interaction features exist. XGBoost with shallow depth remains quick on this dataset and can capture higher\u2011order interactions.",
+        "converged": true
+      }
+    ],
+    "best_algorithm": "random_forest",
+    "best_mean_cv_score": -5.22017,
+    "best_hyperparams": {
+      "max_depth": 5,
+      "n_estimators": 100,
+      "random_state": 42
+    },
+    "best_reason": "With low\u2011dimensional numeric data, a modest Random Forest adds robustness and can model more complex non\u2011linear relationships without overfitting on 230 rows, while still being fast to train.",
+    "forced_algorithm": null,
+    "forced_override_applied": false,
+    "retrain_note": "Best model trained on full dataset (no sampling needed).",
+    "final_model_converged": true,
+    "notes": [
+      "neural_network_mlp excluded: dataset < 1K rows, deep learning would overfit and adds unnecessary complexity.",
+      "svm_rbf and svm_linear excluded: while feasible, they provide little advantage over tree\u2011based models for this small, already scaled numeric data.",
+      "lightgbm excluded: performance similar to XGBoost; keeping candidate count to three as per limits.",
+      "naive_bayes and knn excluded: not appropriate for regression tasks."
+    ],
+    "model_path": "outputs/models/43a04245-3c42-4626-80de-c4c185c53ebc_best_model.pkl"
+  },
+  "hyperparameter_tuning": {
+    "original_algorithm": "random_forest",
+    "best_trial_score": -55.19194,
+    "best_params": {
+      "n_estimators": 383,
+      "max_depth": 3,
+      "min_samples_split": 14,
+      "min_samples_leaf": 8,
+      "max_features": "sqrt"
+    },
+    "num_trials_completed": 20,
+    "trials_with_convergence_warnings": 0,
+    "final_model_converged": true,
+    "time_seconds": 36.28,
+    "tuned_model_path": "outputs/models/43a04245-3c42-4626-80de-c4c185c53ebc_tuned_model.pkl",
+    "param_importance": {
+      "min_samples_leaf": 0.5471,
+      "max_depth": 0.2885,
+      "min_samples_split": 0.0684,
+      "max_features": 0.0616,
+      "n_estimators": 0.0344
+    }
+  },
+  "evaluation": {
+    "problem_type": "regression",
+    "num_samples": 58,
+    "num_features": 4,
+    "metrics": {
+      "mae": 4.4133,
+      "mse": 32.47596,
+      "rmse": 5.69877,
+      "r2": 0.01279
+    },
+    "artifacts": {
+      "residual_plot_path": "outputs/evaluation/43a04245-3c42-4626-80de-c4c185c53ebc/residual_plot.png",
+      "actual_vs_predicted_path": "outputs/evaluation/43a04245-3c42-4626-80de-c4c185c53ebc/actual_vs_predicted.png",
+      "learning_curve_path": "outputs/evaluation/43a04245-3c42-4626-80de-c4c185c53ebc/learning_curve.png"
+    }
+  },
+  "conclusions": {
+    "best_model": "random_forest",
+    "cv_score": -5.22017,
+    "final_accuracy": null,
+    "final_f1": null,
+    "recommendation": "Weak fit. Review features or collect more data.",
+    "final_r2": 0.01279
+  }
+}

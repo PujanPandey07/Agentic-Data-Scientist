@@ -1,0 +1,250 @@
+{
+  "generated_at": "2026-09-25T07:09:13.273552+00:00",
+  "user_query": "you gave the same graphs so first recommend me graphs that can be made more with this datset",
+  "dataset_id": "dbadab47-c9a0-4964-99ab-d8edb75ee1b1",
+  "target_column": "package",
+  "problem_type": "regression",
+  "pipeline_status": {
+    "completed_tasks": [
+      "cleaning",
+      "eda",
+      "visualization",
+      "feature_engineering",
+      "model_selection",
+      "hyperparameter_tuning",
+      "evaluation",
+      "reporting",
+      "reporting",
+      "visualization",
+      "reporting",
+      "visualization"
+    ],
+    "total_tasks": 12
+  },
+  "dataset_overview": {
+    "final_shape": [
+      200,
+      2
+    ],
+    "columns": [
+      "cgpa",
+      "package"
+    ]
+  },
+  "cleaning": {
+    "original_rows": 200,
+    "final_rows": 200,
+    "duplicates_removed": 0,
+    "missing_values_remaining": 0
+  },
+  "eda": {
+    "shape": {
+      "rows": 200,
+      "columns": 2
+    },
+    "column_names": [
+      "cgpa",
+      "package"
+    ],
+    "numerical_columns": [
+      "cgpa",
+      "package"
+    ],
+    "categorical_columns": [],
+    "numerical_summary": {
+      "cgpa": {
+        "count": 200.0,
+        "mean": 6.9905,
+        "std": 1.0694,
+        "min": 4.26,
+        "25%": 6.19,
+        "50%": 6.965,
+        "75%": 7.7375,
+        "max": 9.58
+      },
+      "package": {
+        "count": 200.0,
+        "mean": 2.9961,
+        "std": 0.6916,
+        "min": 1.37,
+        "25%": 2.4875,
+        "50%": 2.995,
+        "75%": 3.4925,
+        "max": 4.62
+      }
+    },
+    "categorical_summary": {},
+    "missing_values": {
+      "cgpa": 0,
+      "package": 0
+    },
+    "correlation": {
+      "cgpa": {
+        "cgpa": 1.0,
+        "package": 0.8807
+      },
+      "package": {
+        "cgpa": 0.8807,
+        "package": 1.0
+      }
+    }
+  },
+  "visualization": {
+    "num_charts": 3,
+    "charts": [
+      {
+        "chart_type": "scatter",
+        "x_column": "cgpa",
+        "y_column": "package",
+        "group_by": null,
+        "path": "outputs\\charts\\dbadab47-c9a0-4964-99ab-d8edb75ee1b1\\cgpa_vs_package_scatter.png"
+      },
+      {
+        "chart_type": "box",
+        "x_column": null,
+        "y_column": "cgpa",
+        "path": "outputs\\charts\\dbadab47-c9a0-4964-99ab-d8edb75ee1b1\\cgpa_box.png"
+      },
+      {
+        "chart_type": "box",
+        "x_column": null,
+        "y_column": "package",
+        "path": "outputs\\charts\\dbadab47-c9a0-4964-99ab-d8edb75ee1b1\\package_box.png"
+      }
+    ]
+  },
+  "feature_engineering": {
+    "original_train_shape": [
+      160,
+      2
+    ],
+    "original_test_shape": [
+      40,
+      2
+    ],
+    "final_train_shape": [
+      160,
+      2
+    ],
+    "final_test_shape": [
+      40,
+      2
+    ],
+    "strategy": "balanced",
+    "steps_executed": 1,
+    "steps_failed": 0,
+    "step_details": [
+      {
+        "action": "standard_scale",
+        "columns": [
+          "cgpa"
+        ],
+        "status": "success",
+        "details": "Standard scaled ['cgpa'] using train data only",
+        "target_column_excluded": false
+      }
+    ],
+    "columns_added": [],
+    "columns_removed": [],
+    "warnings": [
+      "Fit the standard scaler strictly on the training set to prevent data leakage."
+    ],
+    "notes": [
+      "Inferred balanced strategy based on the request to build a regression model using KNN.",
+      "Target column package is excluded from scaling."
+    ],
+    "target_column_guard_triggered": 0
+  },
+  "training": {
+    "strategy": "standard",
+    "sample_size": null,
+    "used_sampling": false,
+    "full_dataset_shape": [
+      160,
+      1
+    ],
+    "sample_shape": [
+      160,
+      1
+    ],
+    "cv_folds": 5,
+    "scoring_metric": "neg_mean_squared_error",
+    "time_budget_minutes": 5,
+    "time_spent_seconds": 0.15,
+    "candidates_results": [
+      {
+        "algorithm": "knn",
+        "status": "success",
+        "mean_cv_score": -0.13920100000000002,
+        "std_cv_score": 0.013478297870790315,
+        "cv_scores": [
+          -0.1606665000000001,
+          -0.14680187499999992,
+          -0.12383025,
+          -0.137818375,
+          -0.12688799999999997
+        ],
+        "estimated_time_seconds": 30,
+        "actual_time_seconds": 0.15,
+        "hyperparams": {},
+        "reason": "User explicitly requested 'knn' via constraint.",
+        "converged": true
+      }
+    ],
+    "best_algorithm": "knn",
+    "best_mean_cv_score": -0.1392,
+    "best_hyperparams": {},
+    "best_reason": "User explicitly requested 'knn' via constraint.",
+    "forced_algorithm": "knn",
+    "forced_override_applied": true,
+    "retrain_note": "Best model trained on full dataset (no sampling needed).",
+    "final_model_converged": true,
+    "notes": [
+      "Algorithm forced by user constraint: 'knn'. LLM planner skipped to save tokens and avoid rate limits."
+    ],
+    "model_path": "outputs/models/dbadab47-c9a0-4964-99ab-d8edb75ee1b1_best_model.pkl"
+  },
+  "hyperparameter_tuning": {
+    "original_algorithm": "knn",
+    "best_trial_score": -0.12582,
+    "best_params": {
+      "n_neighbors": 15,
+      "weights": "uniform",
+      "p": 1
+    },
+    "num_trials_completed": 20,
+    "trials_with_convergence_warnings": 0,
+    "final_model_converged": true,
+    "time_seconds": 25.35,
+    "tuned_model_path": "outputs/models/dbadab47-c9a0-4964-99ab-d8edb75ee1b1_tuned_model.pkl",
+    "param_importance": {
+      "weights": 0.9582,
+      "n_neighbors": 0.0368,
+      "p": 0.005
+    }
+  },
+  "evaluation": {
+    "problem_type": "regression",
+    "num_samples": 40,
+    "num_features": 1,
+    "metrics": {
+      "mae": 0.23617,
+      "mse": 0.08219,
+      "rmse": 0.2867,
+      "r2": 0.77844
+    },
+    "artifacts": {
+      "residual_plot_path": "outputs/evaluation/dbadab47-c9a0-4964-99ab-d8edb75ee1b1/residual_plot.png",
+      "actual_vs_predicted_path": "outputs/evaluation/dbadab47-c9a0-4964-99ab-d8edb75ee1b1/actual_vs_predicted.png",
+      "learning_curve_path": "outputs/evaluation/dbadab47-c9a0-4964-99ab-d8edb75ee1b1/learning_curve.png"
+    }
+  },
+  "conclusions": {
+    "best_model": "knn",
+    "cv_score": -0.1392,
+    "final_accuracy": null,
+    "final_f1": null,
+    "recommendation": "Reasonable fit. Consider non-linear models.",
+    "final_r2": 0.77844
+  }
+}

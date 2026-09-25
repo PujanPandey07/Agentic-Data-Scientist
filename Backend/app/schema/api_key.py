@@ -4,10 +4,10 @@ from typing import Literal
 
 Provider = Literal["openai", "anthropic", "gemini", "groq"]
 
-# Hardcoded and manually maintained rather than fetched live from each
-# provider's API — avoids trusting a live response to shape the frontend
-# dropdown, and keeps deprecated/irrelevant model types (embeddings, etc.)
-# out of the list entirely. Update this list by hand as new models ship.
+# Placeholder only — seeds the dropdown before the user has typed a key.
+# Once a key is present, submit_key/change_model validate against the LIVE
+# model list from the provider instead (see services/live_models.py); this
+# static dict is never trusted once a real key is in play.
 AVAILABLE_MODELS: dict[str, list[str]] = {
     "openai": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
     "anthropic": ["claude-3-5-sonnet-latest", "claude-3-5-haiku-latest", "claude-3-opus-latest"],
@@ -28,6 +28,13 @@ class ModelChange(BaseModel):
     """Switching model WITHIN the currently configured provider — no key
     needed, since the key doesn't change."""
     model_name: str
+
+
+class ModelPreviewRequest(BaseModel):
+    """Frontend calls this right after the user types a key, before
+    submitting, to populate the dropdown with the LIVE model list."""
+    provider: Provider
+    api_key: str = Field(min_length=1)
 
 
 class APIKeyStatus(BaseModel):

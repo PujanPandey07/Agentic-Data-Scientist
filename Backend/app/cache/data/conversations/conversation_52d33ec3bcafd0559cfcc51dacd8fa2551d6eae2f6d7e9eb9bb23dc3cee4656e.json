@@ -1,0 +1,25 @@
+{
+  "conversation_id": "928a4cec-538b-4121-8acc-5e306e43a87d",
+  "conversation_summary": "",
+  "recent_messages": [
+    {
+      "role": "user",
+      "content": "hey okay lets run a full pipeline on this dataset classification problem it is"
+    },
+    {
+      "role": "user",
+      "content": "continue from where error came"
+    },
+    {
+      "role": "user",
+      "content": "hey so what does the result suggest us about the data"
+    },
+    {
+      "role": "user",
+      "content": "yes iam asking about the results only tell me"
+    }
+  ],
+  "current_goal": "yes iam asking about the results only tell me",
+  "recent_decisions": [],
+  "unresolved_questions": []
+}

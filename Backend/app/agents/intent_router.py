@@ -12,6 +12,7 @@ class IntentRouterAgent:
         self,
         user_query: str,
         has_prior_report: bool,
+        pipeline_in_progress: bool,
         llm_config: dict | None = None,
     ) -> IntentClassification:
         logger.info("Classifying user intent")
@@ -23,6 +24,7 @@ class IntentRouterAgent:
             {"role": "user", "content": f"""User message: {user_query}
 
 A previous analysis report exists in this session: {has_prior_report}
+A pipeline run is currently in progress / was interrupted mid-way (unfinished tasks remain): {pipeline_in_progress}
 
 Classify the intent now."""},
         ]

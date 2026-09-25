@@ -8,7 +8,7 @@ const PROVIDER_LABELS = {
 };
 
 function ApiKeySettings() {
-  const [availableModels, setAvailableModels] = useState({});
+  const [availableModels, setAvailableModels] = useState({}); // static seed list
   const [status, setStatus] = useState(null); // {configured, provider, model_name}
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
@@ -19,6 +19,19 @@ function ApiKeySettings() {
   const [apiKey, setApiKey] = useState("");
   const [modelName, setModelName] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  // Live model preview for the ADD/REPLACE form — populated from the
+  // typed key. null means "no live list yet, fall back to the static list".
+  const [liveModels, setLiveModels] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState("");
+
+  // Live model list for the CURRENTLY CONFIGURED provider, using the
+  // already-stored key — powers the "switch model" dropdown so it's never
+  // stuck on the static 3-model seed list.
+  const [switchModels, setSwitchModels] = useState(null);
+  const [switchModelsLoading, setSwitchModelsLoading] = useState(false);
+  const [switchModelsError, setSwitchModelsError] = useState("");
 
   // Form state for "change model only" (same provider, no key needed)
   const [newModel, setNewModel] = useState("");
@@ -50,16 +63,104 @@ function ApiKeySettings() {
     load();
   }, []);
 
-  // Keep the "add/replace" model dropdown valid whenever provider changes —
-  // each provider has a different model list, so a stale selection from the
-  // previous provider would otherwise submit an invalid model_name.
+  // Whenever status becomes configured (or the provider changes, e.g.
+  // after replacing the key), fetch the LIVE model list for the stored
+  // key so the switch-model dropdown reflects reality, not the static seed.
   useEffect(() => {
-    const models = availableModels[provider] || [];
+    if (!status?.configured) {
+      setSwitchModels(null);
+      return;
+    }
+
+    let cancelled = false;
+    setSwitchModelsLoading(true);
+    setSwitchModelsError("");
+
+    axiosInstance
+      .get("/api/api-keys/live-models")
+      .then((res) => {
+        if (cancelled) return;
+        setSwitchModels(res.data.models);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setSwitchModels(null);
+        setSwitchModelsError(
+          error.response?.data?.detail || "Could not fetch live models for this key."
+        );
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setSwitchModelsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [status?.configured, status?.provider]);
+
+  // Debounced live lookup for the ADD/REPLACE form: whenever the provider
+  // or key text changes, ask the backend what models THIS typed key can
+  // actually use. An empty key clears the live list and falls back to the
+  // static seed list instead.
+  useEffect(() => {
+    const trimmed = apiKey.trim();
+    setPreviewError("");
+
+    if (!trimmed) {
+      setLiveModels(null);
+      setPreviewLoading(false);
+      return;
+    }
+
+    setPreviewLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await axiosInstance.post("/api/api-keys/preview-models", {
+          provider,
+          api_key: trimmed,
+        });
+        setLiveModels(res.data.models);
+      } catch (error) {
+        setLiveModels(null);
+        setPreviewError(
+          error.response?.data?.detail || "Could not verify this key."
+        );
+      } finally {
+        setPreviewLoading(false);
+      }
+    }, 600);
+
+    return () => clearTimeout(timer);
+  }, [provider, apiKey]);
+
+  // Keep the ADD/REPLACE model dropdown valid whenever the effective list
+  // changes — whichever source (live preview or static seed) is active.
+  useEffect(() => {
+    const models = liveModels ?? (availableModels[provider] || []);
     if (models.length > 0 && !models.includes(modelName)) {
       setModelName(models[0]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [provider, availableModels]);
+  }, [provider, availableModels, liveModels]);
+
+  // Keep the SWITCH MODEL dropdown valid whenever the live list for the
+  // configured provider loads.
+  useEffect(() => {
+    if (switchModels && switchModels.length > 0 && !switchModels.includes(newModel)) {
+      setNewModel(switchModels[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [switchModels]);
+
+  // Switching provider invalidates any live list fetched for the old
+  // provider's key shape — clear it so the static list shows immediately
+  // until the debounced effect above re-verifies against the new provider.
+  function handleProviderChange(newProvider) {
+    setProvider(newProvider);
+    setLiveModels(null);
+    setPreviewError("");
+  }
 
   async function handleSubmitKey(e) {
     e.preventDefault();
@@ -79,6 +180,7 @@ function ApiKeySettings() {
       setStatus(res.data);
       setNewModel(res.data.model_name);
       setApiKey(""); // never keep the raw key in memory longer than needed
+      setLiveModels(null);
       setSuccessMsg("Your API key has been saved.");
     } catch (error) {
       setErrorMsg(error.response?.data?.detail || "Could not save API key.");
@@ -122,13 +224,20 @@ function ApiKeySettings() {
   }
 
   if (loading) {
-    return <div className="max-w-xl mx-auto px-6 py-12 text-muted">Loading...</div>;
+    return (
+      <div className="h-full overflow-y-auto">
+        <div className="max-w-xl mx-auto px-6 py-12 text-muted">Loading...</div>
+      </div>
+    );
   }
 
   const providerOptions = Object.keys(availableModels);
-  const modelsForProvider = availableModels[provider] || [];
+  const modelsForProvider = liveModels ?? (availableModels[provider] || []);
+  const keyEnteredButUnverified = apiKey.trim().length > 0 && liveModels === null && !previewError;
+  const switchModelOptions = switchModels ?? (availableModels[status?.provider] || []);
 
   return (
+    <div className="h-full overflow-y-auto">
     <div className="max-w-xl mx-auto px-6 py-12">
       <h1 className="font-serif text-2xl text-ink mb-2">Your AI model</h1>
       <p className="text-muted text-sm mb-6">
@@ -160,22 +269,27 @@ function ApiKeySettings() {
             <select
               value={newModel}
               onChange={(e) => setNewModel(e.target.value)}
-              className="flex-1 px-3 py-2 border border-muted/40 rounded-md bg-white text-ink text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+              disabled={switchModelsLoading}
+              className="flex-1 px-3 py-2 border border-muted/40 rounded-md bg-white text-ink text-sm focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50"
             >
-              {(availableModels[status.provider] || []).map((m) => (
+              {switchModelOptions.map((m) => (
                 <option key={m} value={m}>{m}</option>
               ))}
             </select>
             <button
               type="submit"
-              disabled={changingModel || newModel === status.model_name}
+              disabled={changingModel || switchModelsLoading || newModel === status.model_name}
               className="bg-ink text-paper px-4 py-2 rounded-md text-sm font-medium hover:bg-panel transition-colors disabled:opacity-50"
             >
               {changingModel ? "Updating..." : "Switch model"}
             </button>
           </form>
           <p className="text-xs text-muted mb-4">
-            Switching models here stays on {PROVIDER_LABELS[status.provider] || status.provider} — no need to re-enter your key.
+            {switchModelsLoading
+              ? "Checking which models your key currently supports..."
+              : switchModelsError
+              ? switchModelsError
+              : `Live from your key — switching models here stays on ${PROVIDER_LABELS[status.provider] || status.provider}, no need to re-enter it.`}
           </p>
 
           {confirmingDelete ? (
@@ -219,24 +333,11 @@ function ApiKeySettings() {
             <label className="block text-xs text-muted mb-1">Provider</label>
             <select
               value={provider}
-              onChange={(e) => setProvider(e.target.value)}
+              onChange={(e) => handleProviderChange(e.target.value)}
               className="w-full px-3 py-2 border border-muted/40 rounded-md bg-white text-ink text-sm focus:outline-none focus:ring-2 focus:ring-accent"
             >
               {providerOptions.map((p) => (
                 <option key={p} value={p}>{PROVIDER_LABELS[p] || p}</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs text-muted mb-1">Model</label>
-            <select
-              value={modelName}
-              onChange={(e) => setModelName(e.target.value)}
-              className="w-full px-3 py-2 border border-muted/40 rounded-md bg-white text-ink text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-            >
-              {modelsForProvider.map((m) => (
-                <option key={m} value={m}>{m}</option>
               ))}
             </select>
           </div>
@@ -256,15 +357,44 @@ function ApiKeySettings() {
             </p>
           </div>
 
+          <div>
+            <label className="block text-xs text-muted mb-1">
+              Model
+              {previewLoading && <span className="text-muted"> — checking key...</span>}
+              {!previewLoading && liveModels !== null && (
+                <span className="text-accent"> — live from your key</span>
+              )}
+            </label>
+            <select
+              value={modelName}
+              onChange={(e) => setModelName(e.target.value)}
+              disabled={previewLoading}
+              className="w-full px-3 py-2 border border-muted/40 rounded-md bg-white text-ink text-sm focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50"
+            >
+              {modelsForProvider.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+            {previewError && (
+              <p className="text-xs text-clay mt-1">{previewError}</p>
+            )}
+            {!previewError && keyEnteredButUnverified && !previewLoading && (
+              <p className="text-xs text-muted mt-1">
+                Showing common models — type your key above to see exactly what it supports.
+              </p>
+            )}
+          </div>
+
           <button
             type="submit"
-            disabled={submitting}
+            disabled={submitting || previewLoading || !!previewError}
             className="w-full bg-ink text-paper py-2 rounded-md font-medium hover:bg-panel transition-colors disabled:opacity-50"
           >
             {submitting ? "Saving..." : status?.configured ? "Replace key" : "Save key"}
           </button>
         </form>
       </div>
+    </div>
     </div>
   );
 }

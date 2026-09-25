@@ -1,0 +1,12 @@
+{
+  "memories": [
+    {
+      "memory_id": "98c64e86fce8946f8806920cc49db7f18d2967072b32bdcec74a881f072d7d73",
+      "owner_id": "dbadab47-c9a0-4964-99ab-d8edb75ee1b1",
+      "topic": "latest_analysis_conclusion",
+      "content": "Reasonable fit. Consider non-linear models.",
+      "importance": 0.75,
+      "updated_at": "2026-09-25T07:09:13.338065+00:00"
+    }
+  ]
+}

@@ -52,6 +52,51 @@ CASCADE_MAP = {
     "evaluation": ["reporting"],
     "reporting": [],
 }
+PIPELINE_SYSTEM_CONTEXT = """
+You are the advisory assistant for an automated data-science pipeline system.
+
+IMPORTANT — the system knowledge below exists so you can accurately answer questions ABOUT this system when the user asks them (how it works, what it can do, what happens at a given stage, how to phrase a request, etc.). It is background knowledge, not a script to follow on every turn. For any message that isn't asking about this system or how to use it — general knowledge questions, questions about you as an assistant, casual chat, or a dataset question that doesn't concern the pipeline — answer that question directly and normally. Do NOT mention pipeline stages, do NOT produce an example prompt, and do NOT redirect the conversation toward running an analysis. Answering plainly and stopping there is correct and expected for most messages.
+
+How this system actually works:
+- The user's message becomes a query that a planner turns into a plan: a detected problem_type (classification or regression), a target_column, and an ordered list of pipeline stages to run. The user reviews and can approve or edit this plan before anything runs.
+- The stages, always run in this order, are: cleaning -> eda -> visualization -> feature_engineering -> model_selection -> hyperparameter_tuning -> evaluation -> reporting.
+- The user can embed per-stage constraints directly in their prompt, e.g. "for feature engineering, one-hot encode the categorical columns", "for model selection, use XGBoost", or "skip visualization" — these are extracted automatically and applied at the matching stage.
+- Model selection and hyperparameter tuning run as background jobs; the user sees a "running in the background" status while these complete, rather than the chat blocking.
+- After a full run completes, the user gets a final report with conclusions, plus charts and an exportable PDF.
+- The user can ask to REFINE a specific completed stage afterward (e.g. "try a different algorithm", "add a chart of X") — this reruns just that stage and everything downstream of it, not the whole pipeline from scratch.
+- If a run is interrupted partway (a crash, or the user leaving mid-run), the user can say "continue" or "retry" to resume from where it left off, rather than starting over.
+- The user does NOT need to write code or specify implementation details — the system's own deterministic services execute each stage. What matters is that the target column and problem type are clear (or inferable), and that any real preferences are stated explicitly.
+- Users can optionally add their own API key (OpenAI, Anthropic, or Gemini) in settings so their runs use their own model instead of the shared default — this only affects which LLM plans/reasons about the data, not the underlying pipeline mechanics.
+
+When (and only when) the user is asking for the best/ideal prompt for their dataset:
+1. Inspect the real dataset summary given to you (column names, types, stats) to identify the most likely target column and whether the problem is classification or regression. If it's genuinely ambiguous, say so briefly and ask the user to confirm the target column rather than guessing silently.
+2. Produce an actual example prompt, clearly set off (e.g. in a quoted block), that the user could copy and paste directly into this chat to start a run. It should explicitly name:
+   - The target column
+   - The problem type (classification or regression)
+   - Any stages worth emphasizing, skipping, or constraining, only if there's a real reason based on THIS dataset (e.g. "skip visualization" for a very wide dataset, or a stratification note for imbalanced classes) — don't pad it with generic advice that applies to every dataset.
+3. Keep the example prompt itself short and natural — one or two sentences a real user would actually type, not a formal spec. Never invent pipeline stages, config options, or capabilities beyond what's listed above.
+"""
+
+
+def _stringify_llm_content(content) -> str:
+    """LangChain's .content is normally a plain string, but some providers
+    (seen with gemini-3.5-flash-lite) return a list of content blocks
+    instead (e.g. [{'type': 'text', 'text': '...'}, {'type': 'thought_signature', ...}]).
+    Flatten to plain text so downstream code that expects a string (chat
+    memory, direct_answer state) never chokes on a list."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict):
+                text = block.get("text")
+                if text:
+                    parts.append(text)
+        return "".join(parts)
+    return str(content)
 
 
 def advance_execution(state, task_name: str, message: str, status: str = "success"):
@@ -340,11 +385,14 @@ async def cleaning_node(state):
     summary = state.get("dataset_summary")
     if summary is not None:
         if hasattr(summary, "column_names") and summary.column_names:
-            summary.column_names = [cleaning_service.standardize_column_name(c) for c in summary.column_names]
+            summary.column_names = [cleaning_service.standardize_column_name(
+                c) for c in summary.column_names]
         if hasattr(summary, "numerical_columns") and summary.numerical_columns:
-            summary.numerical_columns = [cleaning_service.standardize_column_name(c) for c in summary.numerical_columns]
+            summary.numerical_columns = [cleaning_service.standardize_column_name(
+                c) for c in summary.numerical_columns]
         if hasattr(summary, "categorical_columns") and summary.categorical_columns:
-            summary.categorical_columns = [cleaning_service.standardize_column_name(c) for c in summary.categorical_columns]
+            summary.categorical_columns = [cleaning_service.standardize_column_name(
+                c) for c in summary.categorical_columns]
 
     state["cleaning_report"] = report
     # Data changed — any cached train/test split is now stale.
@@ -905,12 +953,15 @@ async def intent_router_node(state):
             and analysis_context_cache.get(dataset_id) is not None
         )
     )
+    pipeline_in_progress = bool(
+        state.get("current_task") or state.get("remaining_tasks")
+    )
 
     classification = await intent_router_agent.classify(
         user_query=user_query,
         has_prior_report=has_prior_report,
+        pipeline_in_progress=pipeline_in_progress,
         llm_config=state.get("llm_config"),
-
     )
 
     intent = classification.intent
@@ -918,6 +969,13 @@ async def intent_router_node(state):
     if intent in ("explain_result", "refine_step") and not has_prior_report:
         logger.warning(
             f"LLM returned '{intent}' with no prior report — overriding to general_question"
+        )
+        intent = "general_question"
+        state["no_prior_analysis"] = True
+
+    if intent == "resume_pipeline" and not pipeline_in_progress:
+        logger.warning(
+            f"LLM returned 'resume_pipeline' with no pipeline in progress — overriding to general_question"
         )
         intent = "general_question"
         state["no_prior_analysis"] = True
@@ -977,18 +1035,27 @@ async def direct_answer_node(state):
         )
 
     messages = [
-        {"role": "system", "content": "Answer the user's question directly and concisely. When the user asks about their dataset, ground your answer in the real columns/stats provided — do not give a generic template."},
+        {
+            "role": "system",
+            "content": (
+                PIPELINE_SYSTEM_CONTEXT
+                + "\n\nAnswer the user's question directly and concisely. "
+                "When the user asks about their dataset, ground your answer "
+                "in the real columns/stats provided — do not give a generic template."
+            ),
+        },
         {"role": "user", "content": f"{state.get('user_query', '')}{context}"},
     ]
 
     response = await llm.ainvoke(messages)
-    state["direct_answer"] = response.content
+    answer_text = _stringify_llm_content(response.content)
+    state["direct_answer"] = answer_text
     if conversation_id:
         await short_term_memory_manager.add_message(
-            conversation_id, "assistant", response.content
+            conversation_id, "assistant", answer_text
         )
     print(
-        f"\n========== DIRECT ANSWER ==========\n{response.content}\n====================================\n")
+        f"\n========== DIRECT ANSWER ==========\n{answer_text}\n====================================\n")
     return state
 
 
@@ -1231,4 +1298,14 @@ async def resolve_llm_node(state):
     async with async_session() as session:
         llm_config = await resolve_user_llm_config(session, user_id)
     state["llm_config"] = llm_config
+
+    if llm_config:
+        logger.info(
+            f"[user {user_id}] using BYOK config: "
+            f"provider={llm_config.get('provider')} model={llm_config.get('model_name')}"
+        )
+    else:
+        logger.info(
+            f"[user {user_id}] no BYOK config — falling back to shared Groq default")
+
     return state

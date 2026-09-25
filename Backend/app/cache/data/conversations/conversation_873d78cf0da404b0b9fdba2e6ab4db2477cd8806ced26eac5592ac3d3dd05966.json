@@ -1,0 +1,13 @@
+{
+  "conversation_id": "7c96f145-9bb3-40c2-9c2d-8374d13bbf7b",
+  "conversation_summary": "",
+  "recent_messages": [
+    {
+      "role": "user",
+      "content": "hey explain me about this dataset"
+    }
+  ],
+  "current_goal": "hey explain me about this dataset",
+  "recent_decisions": [],
+  "unresolved_questions": []
+}

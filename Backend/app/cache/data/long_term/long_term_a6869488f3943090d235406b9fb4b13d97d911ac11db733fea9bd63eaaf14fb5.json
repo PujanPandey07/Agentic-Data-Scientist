@@ -1,0 +1,12 @@
+{
+  "memories": [
+    {
+      "memory_id": "1796d08446ce32ac1f7e5922a479a9a3179c75746828c475997fd38cc6f89500",
+      "owner_id": "080a7d4a-9269-4338-b61e-96c6836a097c",
+      "topic": "latest_analysis_conclusion",
+      "content": "Excellent model performance. Ready for deployment.",
+      "importance": 0.75,
+      "updated_at": "2026-09-25T07:29:28.751040+00:00"
+    }
+  ]
+}

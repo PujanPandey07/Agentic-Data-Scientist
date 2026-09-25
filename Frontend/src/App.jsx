@@ -5,6 +5,7 @@ import Sidebar from "./components/SideBar";
 import LoginPage from "./pages/Loginpage";
 import RegisterPage from "./pages/Registerpage";
 import Workspace from "./pages/Workspace";
+import ApiKeySettings from "./pages/ApiKeySettings";
 
 function withSidebar(Page) {
   return (
@@ -28,6 +29,7 @@ function App() {
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/" element={withSidebar(Workspace)} />
           <Route path="/c/:threadId" element={withSidebar(Workspace)} />
+          <Route path="/settings/api-keys" element={withSidebar(ApiKeySettings)} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

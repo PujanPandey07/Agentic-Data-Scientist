@@ -3,11 +3,16 @@ import uuid
 
 from fastapi import APIRouter, Depends, Request
 
-from core.db import get_db_session
+from core.db import async_session
 from core.models import Conversation, Message
 from core.security import get_current_user_id
 from schema.runs import RunRequest, RunResponse
 from services.dataset_service import dataset_service
+from services.llm_config import resolve_user_llm_config
+from services.runtime_state import runtime_state_store
+from cache.dataset_cache import dataset_summary_cache
+from analysis.inspector import dataset_inspector
+from agents.planner import planner_agent
 
 router = APIRouter(prefix="/api", tags=["Runs"])
 
@@ -29,27 +34,55 @@ async def create_run(
     # inside some later node with a confusing error.
     dataset_service.get_dataset_path(payload.dataset_id)
 
+    # --- Planning now happens HERE, before any graph is chosen ---
+    # This is the one structural change needed to support multiple graph
+    # families: we need to know problem_type BEFORE calling .ainvoke() on
+    # anything, since that determines which compiled graph to use. So the
+    # dataset load + inspection + planning that used to happen inside
+    # dataset_node/planner_node now happens directly in this endpoint, and
+    # the resulting analysis_plan is handed to the graph pre-built.
+    dataframe = dataset_service.load_dataset(payload.dataset_id)
+
+    dataset_summary = dataset_summary_cache.get(payload.dataset_id)
+    if dataset_summary is None:
+        dataset_summary = dataset_inspector.inspect(dataframe)
+        dataset_summary_cache.set(payload.dataset_id, dataset_summary)
+
+    async with async_session() as session:
+        llm_config = await resolve_user_llm_config(session, user_id)
+
+    plan = await planner_agent.plan(payload.user_query, dataset_summary, llm_config)
+
+    # THE dispatch decision. Every future message on this thread must be
+    # routed to the SAME graph — this is why pipeline_family is persisted
+    # on the Conversation row below, not just used once here.
+    family = "unsupervised" if plan.problem_type == "clustering" else "supervised"
+    graph = (
+        request.app.state.unsupervised_graph
+        if family == "unsupervised"
+        else request.app.state.graph
+    )
+
+    # Make the loaded dataframe available to the graph's runtime cache the
+    # same way dataset_node normally would, since dataset_node is being
+    # skipped for this pre-planned path (see route_intent's
+    # "extract_constraints" branch in graphs/nodes.py).
+    runtime_state_store.set_dataset(payload.dataset_id, dataframe)
+
     # A NEW thread_id per run — this is what makes it "fresh new id"
     # rather than reusing dataset_id, so two runs on the same dataset
     # (or two different users) never collide.
     thread_id = str(uuid.uuid4())
 
-    # Mirrors test_graph.py's is_first_run=True branch exactly — every
-    # GraphState field needs an initial value since this OVERWRITES
-    # the checkpoint for a brand new thread_id.
     initial_state = {
         "user_query": payload.user_query,
         "dataset_id": payload.dataset_id,
-        # NEW: needed by resolve_llm_node (runs right after START, before
-        # ANY other node — including the direct_answer path, which never
-        # touches dataset_node) so every LLM call in this run can use the
-        # user's own configured provider/key/model instead of always
-        # falling back to the shared default.
         "user_id": user_id,
-        "llm_config": None,
+        "llm_config": llm_config,
         "dataframe": None,
-        "dataset_summary": None,
-        "analysis_plan": None,
+        "dataset_summary": dataset_summary,
+        "analysis_plan": plan,
+        "target_column": plan.target_column,
         "cleaning_report": None,
         "eda_report": None,
         "visualization_plan": None,
@@ -64,9 +97,6 @@ async def create_run(
         "direct_answer": None,
     }
 
-    # request.app.state.graph — the SAME compiled graph object created
-    # once in lifespan, reused across every request. No recompiling here.
-    graph = request.app.state.graph
     config = {"configurable": {"thread_id": thread_id}}
 
     result = await graph.ainvoke(initial_state, config=config)
@@ -80,6 +110,7 @@ async def create_run(
             dataset_id=payload.dataset_id,
             user_id=user_id,
             title=_conversation_title(payload.user_query),
+            pipeline_family=family,
         )
         session.add(conversation)
         await session.flush()  # populates conversation.id before we reference it below

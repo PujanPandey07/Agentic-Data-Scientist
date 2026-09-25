@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from graphs.workflow import builder
+from graphs.workflow import build_supervised_graph, build_unsupervised_graph
 import os
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from core.db import engine, async_session, Base
@@ -28,12 +28,20 @@ async def lifespan(app: FastAPI):
     ) as checkpointer:
         await checkpointer.setup()
 
-        graph = builder.compile(checkpointer=checkpointer)
+        # Two compiled graphs sharing the SAME checkpointer — this is what
+        # lets both families' checkpoints live in the same Postgres store,
+        # keyed by thread_id as always. Which graph a given thread_id gets
+        # dispatched to is decided in api/runs.py (at creation) and looked
+        # up via Conversation.pipeline_family in api/chat.py (on every
+        # later message) — never decided here.
+        graph = build_supervised_graph().compile(checkpointer=checkpointer)
+        unsupervised_graph = build_unsupervised_graph().compile(checkpointer=checkpointer)
 
         async with engine.begin() as db_conn:
             await db_conn.run_sync(Base.metadata.create_all)
 
         app.state.graph = graph
+        app.state.unsupervised_graph = unsupervised_graph
         app.state.db_session = async_session
 
         yield
@@ -71,4 +79,3 @@ app.include_router(auth_router)
 app.include_router(conversations_router)
 app.include_router(jobs_router)
 app.include_router(api_key_router)
-

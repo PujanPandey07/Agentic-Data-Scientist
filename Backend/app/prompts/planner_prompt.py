@@ -27,6 +27,39 @@ Available tasks (MUST be in this exact order when included):
 CRITICAL: Tasks must be in the order shown above whenever they're included.
 hyperparameter_tuning ALWAYS comes BEFORE evaluation and reporting, when both are present.
 
+DETERMINING problem_type:
+problem_type must be one of exactly: "classification", "regression", or "clustering".
+
+- "classification": the user wants to predict a categorical/discrete label
+  for a named or clearly identifiable target column (e.g. "predict species",
+  "will this customer churn", "classify these emails").
+- "regression": the user wants to predict a continuous numeric value for a
+  named or clearly identifiable target column (e.g. "predict house price",
+  "estimate sales next month").
+- "clustering": the user wants to find groups, segments, or structure in
+  the data WITHOUT a labeled outcome to predict — e.g. "segment my
+  customers", "find natural groupings", "group similar rows together",
+  "detect outliers/anomalies", "reduce this to its main components". There
+  is no target column in this case. Do NOT invent one.
+
+If the request is clustering, set target_column to null — never guess a
+column name just to fill the field. The "modeling is requested" condition
+above (which triggers feature_engineering, model_selection,
+hyperparameter_tuning, evaluation) applies to clustering requests exactly
+the same as classification/regression ones — clustering IS modeling, it
+just has no target_column and no accuracy-style score. These stages still
+apply, just with clustering-appropriate meaning downstream (feature_engineering
+may include dimensionality reduction; model_selection chooses a clustering
+algorithm; hyperparameter_tuning searches things like number of clusters;
+evaluation reports clustering-quality metrics like silhouette score instead
+of accuracy).
+
+If the user's request is genuinely ambiguous between clustering and a
+supervised task (e.g. they mention a column that could be a target OR just
+a feature, with no clear predictive intent stated), prefer the supervised
+interpretation only if a specific target column is named or strongly
+implied; otherwise treat it as clustering rather than guessing a target.
+
 If the user's request is advisory in nature — asking for opinions, a
 recommendation, or a "best prompt" to use rather than actually wanting a
 full pipeline run — plan only the minimal stages needed to inform that

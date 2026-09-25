@@ -7,10 +7,18 @@ tangled if/else in plan_review_node.
 """
 
 import re
+
+# Tasks that require a target_column + a supervised problem_type
+# (classification/regression) to make sense. Clustering plans can
+# legitimately include "evaluation" (silhouette score, etc.) and even a
+# "model_selection"-style stage without ever having a target column — so
+# these checks are explicitly scoped to non-clustering plans.
 MODELING_TASKS = {"model_selection", "hyperparameter_tuning", "evaluation"}
 
 
 def _check_target_column_present(plan, dataset_summary) -> str | None:
+    if plan.problem_type == "clustering":
+        return None
     needs_target = any(task in (plan.tasks or []) for task in MODELING_TASKS)
     if needs_target and not plan.target_column:
         return (
@@ -33,12 +41,15 @@ def _check_target_column_exists(plan, dataset_summary) -> str | None:
 
 
 def _check_problem_type_present(plan, dataset_summary) -> str | None:
+    # Clustering plans, and any other non-modeling plan, don't need this
+    # check — problem_type="clustering" already satisfies "a type was
+    # determined" on its own.
     needs_type = any(task in (plan.tasks or []) for task in MODELING_TASKS)
     if needs_type and not plan.problem_type:
         return (
             "This request involves modeling, but the problem type "
-            "(classification vs regression) couldn't be determined. "
-            "Please clarify."
+            "(classification, regression, or clustering) couldn't be "
+            "determined. Please clarify."
         )
     return None
 
@@ -74,9 +85,6 @@ def validate_plan(plan, dataset_summary) -> list[str]:
     return problems
 
 
-# graphs/plan_validation.py — add this function alongside validate_plan
-
-
 _TARGET_COLUMN_PATTERNS = [
     r"target column is (\w+)",
     r"target column[:\s]+(\w+)",
@@ -84,8 +92,6 @@ _TARGET_COLUMN_PATTERNS = [
     r"target is (\w+)",
 ]
 
-
-# graphs/plan_validation.py — replace extract_explicit_target_column
 
 def extract_explicit_target_column(text: str, dataset_summary) -> str | None:
     """Deterministically check whether the user's free-text instruction

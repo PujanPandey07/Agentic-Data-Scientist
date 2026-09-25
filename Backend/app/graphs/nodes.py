@@ -1079,6 +1079,13 @@ async def refine_target_node(state):
 def route_intent(state):
     intent = state.get("intent")
     if intent == "run_pipeline":
+        # If analysis_plan is already populated, planning happened OUTSIDE
+        # the graph (in api/runs.py, before the graph was even chosen —
+        # needed so the family/problem_type is known before dispatch).
+        # Skip dataset_node/planner_node and go straight to constraint
+        # extraction against the already-built plan.
+        if state.get("analysis_plan") is not None:
+            return "extract_constraints"
         return "run_pipeline"
     if intent == "resume_pipeline":
         if state.get("current_task") or state.get("remaining_tasks"):

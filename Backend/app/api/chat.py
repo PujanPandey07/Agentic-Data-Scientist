@@ -42,6 +42,16 @@ async def _get_owned_conversation(session: AsyncSession, thread_id: str, user_id
     return conversation
 
 
+def _graph_for(request: Request, conversation: Conversation):
+    """Every future message on a thread must go to the SAME compiled
+    graph it started on — pipeline_family is persisted on the Conversation
+    row at creation time (api/runs.py) specifically so this lookup is
+    possible on every subsequent message, including resumes."""
+    if getattr(conversation, "pipeline_family", "supervised") == "unsupervised":
+        return request.app.state.unsupervised_graph
+    return request.app.state.graph
+
+
 def _safe_interrupt_payload(result: dict) -> dict | None:
     interrupt_block = result.get("__interrupt__") or []
     if not interrupt_block:
@@ -115,7 +125,7 @@ async def chat(
 ):
     conversation = await _get_owned_conversation(session, payload.thread_id, user_id)
 
-    graph = request.app.state.graph
+    graph = _graph_for(request, conversation)
     config = {"configurable": {"thread_id": payload.thread_id}}
 
     snapshot = await graph.aget_state(config)
@@ -293,9 +303,9 @@ async def get_pending_decision(
     user_id: int = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_session),
 ):
-    await _get_owned_conversation(session, thread_id, user_id)
+    conversation = await _get_owned_conversation(session, thread_id, user_id)
 
-    graph = request.app.state.graph
+    graph = _graph_for(request, conversation)
     config = {"configurable": {"thread_id": thread_id}}
 
     snapshot = await graph.aget_state(config)

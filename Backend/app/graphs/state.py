@@ -58,13 +58,13 @@ class GraphState(TypedDict):
     train_df: pd.DataFrame | None
     test_df: pd.DataFrame | None
 
-    # Training
+    # Training (supervised: classification/regression)
     model_selection_plan: ModelSelectionPlan | None
     training_report: dict | None
     trained_model_path: str | None   # NEW — set by training node
     _training_job_id: str | None
 
-    # evaluation
+    # evaluation (supervised)
     evaluation_report: dict | None
 
     hyperparameter_tuning_report: dict | None
@@ -77,6 +77,52 @@ class GraphState(TypedDict):
     # enqueue_tuning_node — an infinite loop (each iteration DID enqueue
     # a real background job) until LangGraph's recursion limit killed it.
     _tuning_job_id: str | None
+
+    # --- Clustering (unsupervised) ---
+    # Mirrors the supervised training/tuning/evaluation fields above in
+    # shape (plan -> report -> path, enqueue/poll job id, separate
+    # evaluation report), but kept as distinct keys rather than reusing
+    # the supervised ones — a clustering run's "model_selection_plan"
+    # holds a totally different schema (chosen algorithm + its specific
+    # hyperparameter search space, e.g. n_clusters or eps/min_samples,
+    # not classification/regression candidates), and reusing the same
+    # key across both graph families would make it ambiguous which shape
+    # a given checkpoint's value is in in every downstream node.
+    clustering_model_selection_plan: dict | None
+    clustering_training_report: dict | None
+    clustering_model_path: str | None
+    _clustering_job_id: str | None
+
+    # Tuning objective/results are clustering-quality metrics (silhouette,
+    # Davies-Bouldin, etc.) over a hyperparameter sweep (e.g. n_clusters),
+    # not CV accuracy — kept separate from hyperparameter_tuning_report
+    # for the same reason as above.
+    clustering_tuning_report: dict | None
+    tuned_clustering_model_path: str | None
+    _clustering_tuning_job_id: str | None
+
+    # Final cluster assignments for the dataset actually used to fit —
+    # stored here (a plain list) rather than only inside a report dict,
+    # since visualization (cluster scatter) and reporting both need direct
+    # access to per-row labels, not just aggregate metrics.
+    cluster_labels: list[int] | None
+
+    # Clustering-quality metrics report: silhouette score, Davies-Bouldin
+    # index, Calinski-Harabasz index, cluster size distribution, and (for
+    # DBSCAN) noise-point count. Structurally unlike evaluation_report,
+    # which assumes accuracy/F1/RMSE/R² — kept as its own key rather than
+    # overloading evaluation_report with an incompatible shape.
+    clustering_evaluation_report: dict | None
+
+    # Diagnostic artifacts consumed by clustering-specific visualizations:
+    # the elbow/knee curve (list of {n_clusters, score} points swept
+    # during tuning) and, only when Hierarchical/Agglomerative was chosen,
+    # the linkage matrix needed to render a dendrogram. Both are produced
+    # during model_selection/tuning but only USED later during
+    # visualization — stored in state so that later stage doesn't need to
+    # refit anything to get them.
+    clustering_elbow_curve: list[dict] | None
+    clustering_linkage_matrix: list | None
 
     # reporting
     final_report: dict | None

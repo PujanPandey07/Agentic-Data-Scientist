@@ -3,6 +3,7 @@ from core.db import async_session
 from services.job_queue import enqueue_training_job, check_job_result
 import logging
 from sklearn.model_selection import train_test_split as sk_train_test_split
+from services.clustering_evaluation import clustering_evaluation_service
 
 from utilis.constraints import format_constraints, detect_forced_algorithm
 from schema.model_selection import ModelCandidate, ModelSelectionPlan
@@ -39,6 +40,7 @@ from services.executiopn_service import execution_service
 from agents.visualization_planner import visualization_planner_agent
 from services.job_queue import enqueue_training_job, check_job_result, enqueue_tuning_job
 import pandas as pd
+from services.job_queue import enqueue_clustering_tuning_job
 
 logger = logging.getLogger(__name__)
 
@@ -125,9 +127,16 @@ STAGE_FIELDS = {
     "eda": ["eda_report"],
     "visualization": ["visualization_plan", "visualization_results", "_viz_just_completed"],
     "feature_engineering": ["feature_engineering_plan", "feature_engineering_report", "train_df", "test_df", "_fe_just_completed"],
-    "model_selection": ["model_selection_plan", "training_report", "trained_model_path"],
-    "hyperparameter_tuning": ["hyperparameter_tuning_report", "tuned_model_path"],
-    "evaluation": ["evaluation_report"],
+    "model_selection": [
+        "model_selection_plan", "training_report", "trained_model_path",
+        "clustering_model_selection_plan", "clustering_training_report", "clustering_model_path",
+    ],
+    "hyperparameter_tuning": [
+        "hyperparameter_tuning_report", "tuned_model_path",
+        "clustering_tuning_report", "tuned_clustering_model_path",
+        "cluster_labels", "clustering_elbow_curve", "clustering_linkage_matrix",
+    ],
+    "evaluation": ["evaluation_report", "clustering_evaluation_report"],
     "reporting": ["final_report"],
 }
 
@@ -183,15 +192,25 @@ def _set_runtime_train_test(state, train_df, test_df):
 def _ensure_train_test_split(state, test_size: float = 0.2, random_state: int = 42):
     """Stratified (classification) or plain (regression) 80/20 train/test
     split, stored in the runtime cache rather than the checkpointed graph state.
+
+    Clustering has no labels to stratify or generalize-test against, so it
+    intentionally skips splitting entirely and fits on the full dataset —
+    this is checked explicitly by problem_type rather than relying on
+    target_column being None as an implicit signal, so the behavior stays
+    correct even if that assumption ever changes upstream.
     """
+    analysis_plan = state.get("analysis_plan")
+    problem_type = analysis_plan.problem_type if analysis_plan else "classification"
+
+    if problem_type == "clustering":
+        return
+
     train_df, test_df = _runtime_train_test(state)
     if train_df is not None and test_df is not None:
         return
 
     df = _runtime_dataframe(state)
     target_column = state.get("target_column")
-    analysis_plan = state.get("analysis_plan")
-    problem_type = analysis_plan.problem_type if analysis_plan else "classification"
 
     if df is None or target_column is None or target_column not in df.columns:
         return  # let the caller's own missing-input guard handle it
@@ -591,6 +610,12 @@ async def feature_engineering_planner_node(state):
 
 
 async def feature_engineering_node(state):
+    analysis_plan = state.get("analysis_plan")
+    problem_type = analysis_plan.problem_type if analysis_plan else None
+
+    if problem_type == "clustering":
+        return await _feature_engineering_clustering_node(state)
+
     df = _runtime_dataframe(state)
     plan = state.get("feature_engineering_plan")
     target_column = state.get("target_column")
@@ -656,6 +681,51 @@ async def feature_engineering_node(state):
     }
 
 
+async def _feature_engineering_clustering_node(state):
+    """Clustering variant: no target column, no train/test split — fits
+    transformations on and applies them to the ENTIRE dataset via
+    FeatureEngineeringService.apply_plan (the single-dataframe method that
+    already existed for exactly this shape of use, alongside
+    apply_plan_train_test). This is where a dimensionality-reduction step
+    like PCA would typically be applied, if the plan includes one, before
+    the clustering algorithm itself ever sees the data.
+    """
+    df = _runtime_dataframe(state)
+    plan = state.get("feature_engineering_plan")
+
+    print("Running feature_engineering node (clustering)...")
+
+    if df is None or plan is None:
+        return {
+            "feature_engineering_report": {
+                "error": "Missing dataframe or feature engineering plan"
+            },
+            "_fe_just_completed": "Skipped: missing dataframe or feature engineering plan",
+        }
+
+    service = FeatureEngineeringService()
+    transformed_df, report = service.apply_plan(
+        df,
+        plan,
+        target_column=None,
+    )
+
+    msg = (
+        f"Feature engineering complete. "
+        f"{df.shape} -> {transformed_df.shape}. "
+        f"Steps: {report['steps_executed']}/{len(plan.steps)} succeeded."
+    )
+
+    _set_runtime_dataframe(state, transformed_df)
+    # No train/test split exists for clustering — make sure neither key is
+    # left stale from an earlier stage or a prior run on this thread.
+    state["train_df"] = None
+    state["test_df"] = None
+
+    return {
+        "feature_engineering_report": report,
+        "_fe_just_completed": msg,
+    }
 # ---------------------------------------------------------------------------
 # TRAINING — split into enqueue + poll.
 #
@@ -677,6 +747,7 @@ async def feature_engineering_node(state):
 # checks status — it's safe to let LangGraph re-run this one from the top
 # on every resume, since it has no enqueue side effect of its own.
 # ---------------------------------------------------------------------------
+
 
 async def enqueue_training_node(state):
     dataset_id = state.get("dataset_id")
@@ -738,6 +809,85 @@ async def poll_training_node(state):
         f"Model saved to {result.get('model_path', 'N/A')}"
     )
     return advance_execution(state, "model_selection", msg)
+
+
+async def enqueue_clustering_tuning_node(state):
+    dataset_id = state.get("dataset_id")
+    training_report = state.get("clustering_training_report")
+
+    if training_report is None or "best_algorithm" not in training_report:
+        state["clustering_tuning_report"] = {
+            "status": "skipped", "reason": "missing inputs"}
+        state["tuned_clustering_model_path"] = state.get(
+            "clustering_model_path")
+        state["_clustering_tuning_job_id"] = None
+        return advance_execution(
+            state, "hyperparameter_tuning", "Skipped: missing inputs",
+            status="skipped",
+        )
+
+    plan_dict = state.get("clustering_model_selection_plan") or {}
+    scoring_metric = plan_dict.get("scoring_metric", "silhouette")
+
+    best_candidate_dict = {
+        "algorithm": training_report["best_algorithm"],
+        "reason": training_report.get("best_reason", ""),
+        "estimated_time_seconds": 30,
+        "hyperparams": training_report.get("best_hyperparams", {}),
+        "priority": 1,
+    }
+
+    job_id = await enqueue_clustering_tuning_job(
+        dataset_id, best_candidate_dict, scoring_metric,
+        max_trials=20, time_budget_seconds=120,
+    )
+    state["_clustering_tuning_job_id"] = job_id
+    return state
+
+
+async def poll_clustering_tuning_node(state):
+    job_id = state.get("_clustering_tuning_job_id")
+
+    if job_id is None:
+        return state
+
+    outcome = await check_job_result(job_id)
+
+    if outcome is None:
+        interrupt({
+            "type": "job_status",
+            "job_type": "clustering_tuning",
+            "job_id": job_id,
+            "summary": "Tuning cluster count/parameters in the background — this may take a moment.",
+        })
+        return state
+
+    state["_clustering_tuning_job_id"] = None
+
+    if outcome["status"] == "failed":
+        state["clustering_tuning_report"] = {
+            "status": "failed", "error": outcome["error"]}
+        state["tuned_clustering_model_path"] = state.get(
+            "clustering_model_path")
+        return advance_execution(
+            state, "hyperparameter_tuning",
+            f"Clustering tuning failed: {outcome['error']}",
+            status="skipped",
+        )
+
+    result = outcome["result"]
+    state["clustering_tuning_report"] = result
+    state["tuned_clustering_model_path"] = result["tuned_model_path"]
+    state["cluster_labels"] = result.get("cluster_labels")
+    state["clustering_elbow_curve"] = result.get("elbow_curve")
+    state["clustering_linkage_matrix"] = result.get("linkage_matrix")
+
+    msg = (
+        f"Tuning complete. {result['n_clusters_found']} clusters found, "
+        f"{result['scoring_metric']} score {result['best_trial_score']}. "
+        f"Trials: {result['num_trials_completed']}"
+    )
+    return advance_execution(state, "hyperparameter_tuning", msg)
 
 
 async def evaluation_node(state):
@@ -1316,3 +1466,73 @@ async def resolve_llm_node(state):
             f"[user {user_id}] no BYOK config — falling back to shared Groq default")
 
     return state
+
+
+async def clustering_evaluation_node(state):
+    """Deterministic evaluation: no model fitting, just scores the final
+    cluster_labels (produced by tuning, or training if tuning was
+    skipped) against the dataset that produced them."""
+    df = _runtime_dataframe(state)
+    labels = state.get("cluster_labels")
+    dataset_id = state.get("dataset_id")
+
+    if df is None or labels is None:
+        state["clustering_evaluation_report"] = {
+            "error": "Missing dataframe or cluster labels"
+        }
+        return advance_execution(
+            state, "evaluation", "Skipped: missing required inputs",
+            status="skipped",
+        )
+
+    report = clustering_evaluation_service.evaluate(df, labels, dataset_id)
+    state["clustering_evaluation_report"] = report
+
+    if "error" in report:
+        return advance_execution(
+            state, "evaluation", f"Skipped: {report['error']}",
+            status="skipped",
+        )
+
+    metrics = report["metrics"]
+    if "silhouette_score" in metrics:
+        msg = (
+            f"Evaluation complete. {report['n_clusters']} clusters, "
+            f"silhouette: {metrics['silhouette_score']}, "
+            f"Davies-Bouldin: {metrics['davies_bouldin_index']}"
+        )
+    else:
+        msg = f"Evaluation complete with limited metrics: {metrics.get('warning', '')}"
+
+    return advance_execution(state, "evaluation", msg)
+
+
+def route_task_unsupervised(state):
+    """Same task-name strings as route_task (cleaning/eda/feature_engineering/
+    model_selection/hyperparameter_tuning/evaluation/reporting) — only the
+    NODE each task routes to differs, since the underlying stage semantics
+    differ for clustering. Reuses the same fan_out_viz_fe mechanism from
+    the shared router() node unchanged."""
+    if state.get("fan_out_viz_fe"):
+        return ["visualization_planner", "feature_engineering_planner"]
+
+    task = state.get("current_task")
+
+    if task == "cleaning":
+        return "cleaning"
+    if task == "eda":
+        return "eda"
+    if task == "feature_engineering":
+        return "feature_engineering"
+    if task == "model_selection":
+        return "clustering_model_selection_planner"
+    if task == "visualization":
+        return "visualization"
+    if task == "hyperparameter_tuning":
+        return "enqueue_clustering_tuning"
+    if task == "evaluation":
+        return "clustering_evaluation"
+    if task == "reporting":
+        return "reporting"
+
+    return END

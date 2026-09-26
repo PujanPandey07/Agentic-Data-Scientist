@@ -92,3 +92,20 @@ async def enqueue_tuning_job(dataset_id: str, target_column: str,
         problem_type, max_trials, time_budget_seconds,
     )
     return job.job_id
+
+
+async def enqueue_clustering_job(dataset_id: str, plan_dict: dict) -> str:
+    pool = await get_pool()
+    job = await pool.enqueue_job("clustering_job", dataset_id, plan_dict)
+    return job.job_id
+
+
+async def enqueue_clustering_tuning_job(dataset_id: str, best_candidate_dict: dict,
+                                        scoring_metric: str, max_trials: int,
+                                        time_budget_seconds: int) -> str:
+    pool = await get_pool()
+    job = await pool.enqueue_job(
+        "tune_clustering_job", dataset_id, best_candidate_dict,
+        scoring_metric, max_trials, time_budget_seconds,
+    )
+    return job.job_id

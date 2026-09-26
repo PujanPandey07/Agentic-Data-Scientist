@@ -7,6 +7,9 @@ from services.runtime_state import runtime_state_store
 from schema.model_selection import ModelSelectionPlan
 from services.trainning import TrainingService
 from services.job_queue import publish_job_complete, REDIS_HOST, REDIS_PORT
+from schema.clustering import ClusteringPlan, ClusteringCandidate
+from services.clustering import ClusteringTrainingService
+from services.clustering_tuning import ClusteringTuningService
 import os
 from arq.connections import RedisSettings
 from dotenv import load_dotenv
@@ -92,8 +95,66 @@ async def tune_model_job(ctx, dataset_id: str, target_column: str,
     return report
 
 
+async def clustering_job(ctx, dataset_id: str, plan_dict: dict):
+    """Runs ClusteringTrainingService.train() in the background worker.
+    Unlike train_model_job, this reads the FULL dataset via
+    runtime_state_store.get_dataset (not get_train_test) — clustering has
+    no train/test split (see _ensure_train_test_split's clustering branch
+    in graphs/nodes.py), it fits on the entire cleaned+engineered dataset.
+    """
+    dataframe = runtime_state_store.get_dataset(dataset_id)
+    if dataframe is None:
+        raise ValueError(
+            f"No cached dataset found for dataset_id={dataset_id}")
+
+    plan = ClusteringPlan(**plan_dict)
+
+    service = ClusteringTrainingService()
+    best_model, labels, report, best_candidate = service.train(
+        df=dataframe, plan=plan, dataset_id=dataset_id,
+    )
+    # cluster_labels travels inside the report dict through Redis (same
+    # transport train_model_job uses for its report) — poll_clustering_node
+    # pulls it back out on the other side.
+    report["cluster_labels"] = labels
+
+    job_id = ctx["job_id"]
+    await publish_job_complete(job_id, report)
+
+    return report
+
+
+async def tune_clustering_job(ctx, dataset_id: str, best_candidate_dict: dict,
+                              scoring_metric: str, max_trials: int,
+                              time_budget_seconds: int):
+    """Same fetch pattern as clustering_job — the full dataset, not a
+    train/test split, since clustering doesn't split."""
+    dataframe = runtime_state_store.get_dataset(dataset_id)
+    if dataframe is None:
+        raise ValueError(
+            f"No cached dataset found for dataset_id={dataset_id}")
+
+    best_candidate = ClusteringCandidate(**best_candidate_dict)
+
+    service = ClusteringTuningService()
+    final_model, report = service.tune(
+        df=dataframe,
+        best_candidate=best_candidate,
+        scoring_metric=scoring_metric,
+        dataset_id=dataset_id,
+        max_trials=max_trials,
+        time_budget_seconds=time_budget_seconds,
+    )
+
+    job_id = ctx["job_id"]
+    await publish_job_complete(job_id, report)
+
+    return report
+
+
 class WorkerSettings:
-    functions = [ping, train_model_job, tune_model_job]
+    functions = [ping, train_model_job, tune_model_job,
+                 clustering_job, tune_clustering_job]
     redis_settings = RedisSettings(host=REDIS_HOST, port=REDIS_PORT)
     on_startup = startup
     on_shutdown = shutdown

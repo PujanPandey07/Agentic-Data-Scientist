@@ -1,7 +1,7 @@
 import logging
 
 from llm.provider import get_llm
-from prompts.clusterinmg import CLUSTERING_MODEL_SELECTION_PROMPT
+from prompts.clustering import CLUSTERING_MODEL_SELECTION_PROMPT
 from schema.clustering import ClusteringPlan
 from utilis.llm_plan import invoke_with_repair
 

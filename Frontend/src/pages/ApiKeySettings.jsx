@@ -5,6 +5,7 @@ const PROVIDER_LABELS = {
   openai: "OpenAI",
   anthropic: "Anthropic",
   gemini: "Gemini",
+  groq: "Groq",
 };
 
 function ApiKeySettings() {

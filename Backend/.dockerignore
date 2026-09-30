@@ -1,0 +1,20 @@
+# Secrets: never bake these into an image
+.env
+.env.example
+
+# Runtime output and generated data
+app.log
+**/runtime_cache
+
+# Python cache at any depth (plain patterns only match the root here)
+**/__pycache__
+**/*.pyc
+
+# Local virtual environments (a Windows venv would break on Linux anyway)
+venv/
+.venv/
+env/
+
+# Git history and editor settings
+.git/
+.vscode/

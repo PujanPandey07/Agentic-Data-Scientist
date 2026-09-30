@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from graphs.workflow import build_supervised_graph, build_unsupervised_graph
+from graphs.workflow import build_supervised_graph, build_unsupervised_graph, build_time_series_graph
 import os
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from core.db import engine, async_session, Base
@@ -36,12 +36,18 @@ async def lifespan(app: FastAPI):
         # later message) — never decided here.
         graph = build_supervised_graph().compile(checkpointer=checkpointer)
         unsupervised_graph = build_unsupervised_graph().compile(checkpointer=checkpointer)
+        time_series_graph = build_time_series_graph().compile(checkpointer=checkpointer)
 
         async with engine.begin() as db_conn:
             await db_conn.run_sync(Base.metadata.create_all)
 
+        # Run Alembic migrations automatically on startup so new columns/tables exist
+        from core.migrations import apply_migrations_async
+        await apply_migrations_async()
+
         app.state.graph = graph
         app.state.unsupervised_graph = unsupervised_graph
+        app.state.time_series_graph = time_series_graph
         app.state.db_session = async_session
 
         yield

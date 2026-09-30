@@ -19,11 +19,13 @@ export function getAccessToken() {
   return accessToken;
 }
 
+export const API_BASE = import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? "http://127.0.0.1:8000" : "");
+
 // The actual axios instance every part of the app will import and use
 // instead of calling axios directly — this is what makes the token
 // attachment and refresh logic automatic and centralized.
 const axiosInstance = axios.create({
-  baseURL: "http://127.0.0.1:8000",
+  baseURL: API_BASE,
   withCredentials: true, // sends the httpOnly refresh cookie automatically on every request
 });
 
@@ -54,7 +56,7 @@ axiosInstance.interceptors.response.use(
         // Calls your backend's refresh endpoint. withCredentials above
         // ensures the httpOnly refresh cookie gets sent along with this.
         const refreshResponse = await axios.post(
-          "http://127.0.0.1:8000/api/auth/refresh",
+          `${API_BASE}/api/auth/refresh`,
           {},
           { withCredentials: true }
         );

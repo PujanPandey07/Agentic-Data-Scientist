@@ -1,23 +1,116 @@
-services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: postgres
-    environment:
-      POSTGRES_DB: ${DB_NAME}
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-    ports:
-      - "5433:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-  redis:
-    image: redis:7-alpine
-    container_name: redis
-    ports:
-      - "6380:6379"
-    volumes:
-      - redis_data:/data
+version: "3.9"
 
+# ---------------------------------------------------------------------------
+# Named volumes
+# ---------------------------------------------------------------------------
+# postgres_data  – Postgres WAL / data directory (survives container restarts)
+# redis_data     – Redis RDB / AOF snapshots
+# runtime_cache  – Shared Parquet cache written by `api`, read by `worker`
+#                  Both services mount this at the same path so ARQ workers
+#                  can find train/test splits without hitting the DB again.
+# ---------------------------------------------------------------------------
 volumes:
   postgres_data:
   redis_data:
+  runtime_cache:
+
+services:
+
+  # ── Postgres ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB:       ${DB_NAME}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # No host-port mapping — only reachable on the internal Docker network
+    # (service name "postgres", port 5432).
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-ai_data_scientist}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ── Redis ─────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    # No host-port mapping — only reachable internally as redis:6379
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  # ── API (FastAPI / Uvicorn) ───────────────────────────────────────────────
+  api:
+    build:
+      context: ./Backend
+      dockerfile: dockerfile
+    image: ai-ds-backend
+    restart: unless-stopped
+    env_file: ./Backend/.env          # loads all your secrets / API keys
+    environment:
+      # Override any localhost URLs from .env with Docker service-name URLs.
+      # Using internal ports (5432 / 6379), NOT the host-mapped ones.
+      DATABASE_URL:          "postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}"
+      DATABASE_URL_PSYCOPG:  "postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}"
+      ALEMBIC_DATABASE_URL:  "postgresql+psycopg://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}"
+      REDIS_URL:             "redis://redis:6379/0"
+    volumes:
+      # Shared Parquet cache — same path as resolved by runtime_state.py:
+      # Path(__file__).resolve().parent.parent / "runtime_cache"
+      # = /app/app/runtime_cache  (runtime_state.py lives at /app/app/services/)
+      - runtime_cache:/app/app/runtime_cache
+    ports:
+      - "8000:8000"     # Expose for local dev / debugging; remove in prod
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ── ARQ Worker ────────────────────────────────────────────────────────────
+  worker:
+    image: ai-ds-backend        # reuses the same image — no separate build
+    restart: unless-stopped
+    # Override the default CMD; entrypoint.sh still runs migrations first
+    command: ["arq", "worker.WorkerSettings"]
+    env_file: ./Backend/.env
+    environment:
+      DATABASE_URL:          "postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}"
+      DATABASE_URL_PSYCOPG:  "postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}"
+      ALEMBIC_DATABASE_URL:  "postgresql+psycopg://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}"
+      REDIS_URL:             "redis://redis:6379/0"
+    volumes:
+      - runtime_cache:/app/app/runtime_cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:           # wait for api so migrations are guaranteed to have run
+        condition: service_started
+
+  # ── Frontend (Vite build → nginx) ─────────────────────────────────────────
+  frontend:
+    build:
+      context: ./Frontend
+      dockerfile: Dockerfile
+      args:
+        # Baked into the Vite bundle at build time.
+        # Empty string → nginx reverse proxy handles /api/ → api:8000 via
+        # relative URLs, so no origin is hard-coded in the JS bundle.
+        VITE_API_URL: ""
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - api

@@ -1,0 +1,32 @@
+# Base image: Python 3.14 to match what the project is developed on
+FROM python:3.14-slim
+
+# Everything below runs relative to /app inside the container
+WORKDIR /app
+
+# Copy only requirements first so Docker can cache the (slow) install
+# layer separately from source code, which changes far more often
+COPY requirements.txt .
+
+# Install Python dependencies (--no-cache-dir keeps the image smaller)
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the whole Backend folder (respecting .dockerignore).
+# main.py ends up at /app/app/main.py because of the folder structure
+COPY . .
+
+# Wire up the entrypoint script that runs alembic migrations before
+# the server starts. Must be placed BEFORE the WORKDIR switch so the
+# path /app/entrypoint.sh is always predictable regardless of WORKDIR.
+RUN chmod +x /app/entrypoint.sh
+
+# Move into the folder that holds main.py, matching how the app is
+# run locally (from Backend/app), so imports like `utilis` resolve
+WORKDIR /app/app
+
+# entrypoint.sh runs `alembic upgrade head` then exec's the CMD below.
+ENTRYPOINT ["/app/entrypoint.sh"]
+
+# Bind to 0.0.0.0 so the app is reachable from outside the container,
+# not just from 127.0.0.1 inside it. No --reload: that's dev-only
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

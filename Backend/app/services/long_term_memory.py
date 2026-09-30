@@ -4,38 +4,31 @@ import hashlib
 import logging
 import re
 from collections import defaultdict
-from pathlib import Path
 
-from cache.json_store import JsonCacheStore
+from cache.pg_store import PgLongTermStore
 from schema.long_term_memory import LongTermMemory
 
 logger = logging.getLogger(__name__)
 
 
 class LongTermMemoryManager:
-    """Selective durable memory with topic-based replacement and deletion."""
+    """Selective durable memory with topic-based replacement and deletion.
 
-    def __init__(self, directory: Path | None = None):
-        directory = directory or Path(__file__).resolve(
-        ).parent.parent / "cache" / "data" / "long_term"
-        self.store = JsonCacheStore(directory)
+    Backed by Postgres (via PgLongTermStore) instead of the old JSON file cache.
+    The public API is identical — callers need no changes.
+    """
 
-        # One lock per owner_id, created on first use. defaultdict means
-        # accessing a missing key auto-creates a fresh asyncio.Lock() for
-        # it — so we never need to pre-register users. Different users'
-        # locks are independent, so concurrent calls for DIFFERENT owners
-        # never block each other, only same-owner calls do.
+    def __init__(self) -> None:
+        self.store = PgLongTermStore()
+
+        # One asyncio.Lock per owner_id — prevents concurrent read-modify-write
+        # races for the same user while allowing different users to run fully
+        # in parallel.
         self._locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
     async def list(self, owner_id: str) -> list[LongTermMemory]:
-        # store.get() is blocking file I/O — run it in a background
-        # thread via asyncio.to_thread so it doesn't freeze the event
-        # loop (and therefore every other concurrent request) while
-        # the file read happens.
-        value = await asyncio.to_thread(self.store.get, self._key(owner_id))
-        if not value:
-            return []
-        return [LongTermMemory.model_validate(item) for item in value.get("memories", [])]
+        rows = await self.store.get_all(owner_id)
+        return [LongTermMemory.model_validate(row) for row in rows]
 
     async def upsert(
         self,
@@ -44,51 +37,36 @@ class LongTermMemoryManager:
         content: str,
         importance: float = 0.7,
     ) -> LongTermMemory:
-        # Hold this owner's lock for the ENTIRE read-modify-write cycle.
-        # Any other upsert()/delete() call for the same owner_id will
-        # wait here until this one fully finishes — closing the race
-        # window that existed before.
+        # Serialise all writes for this owner to prevent races.
         async with self._locks[owner_id]:
-            memories = [memory for memory in await self.list(owner_id) if memory.topic != topic]
-            memory = LongTermMemory(
-                memory_id=self._memory_id(owner_id, topic),
+            memory_id = self._memory_id(owner_id, topic)
+            row = await self.store.upsert(
+                memory_id=memory_id,
                 owner_id=owner_id,
                 topic=topic,
                 content=content,
                 importance=importance,
             )
-            memories.append(memory)
-            await asyncio.to_thread(
-                self.store.set,
-                self._key(owner_id),
-                {"memories": [item.model_dump(mode="json")
-                              for item in memories]},
-            )
-            return memory
+            return LongTermMemory.model_validate(row)
 
     async def delete(self, owner_id: str, topic: str) -> None:
-        # Same lock as upsert() — delete is also a read-modify-write,
-        # so it needs the same protection.
         async with self._locks[owner_id]:
-            memories = [memory for memory in await self.list(owner_id) if memory.topic != topic]
-            await asyncio.to_thread(
-                self.store.set,
-                self._key(owner_id),
-                {"memories": [item.model_dump(mode="json")
-                              for item in memories]},
-            )
+            await self.store.delete_by_topic(owner_id, topic)
 
-    async def relevant(self, owner_id: str, query: str, limit: int = 5) -> list[LongTermMemory]:
+    async def relevant(
+        self, owner_id: str, query: str, limit: int = 5
+    ) -> list[LongTermMemory]:
         terms = set(query.lower().split())
         scored = []
         for memory in await self.list(owner_id):
-            score = len(terms.intersection(
-                set(memory.content.lower().split())))
+            score = len(terms.intersection(set(memory.content.lower().split())))
             scored.append((score, memory.importance, memory))
         scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
         return [item[2] for item in scored[:limit] if item[0] > 0 or not terms]
 
-    async def extract_and_store(self, owner_id: str, text: str) -> list[LongTermMemory]:
+    async def extract_and_store(
+        self, owner_id: str, text: str
+    ) -> list[LongTermMemory]:
         """Store only explicit durable preferences or project decisions."""
         candidates = []
         patterns = {
@@ -102,10 +80,6 @@ class LongTermMemoryManager:
                     await self.upsert(owner_id, topic, match.group(1).strip(), 0.8)
                 )
         return candidates
-
-    @staticmethod
-    def _key(owner_id: str) -> str:
-        return f"long_term_{hashlib.sha256(owner_id.encode('utf-8')).hexdigest()}"
 
     @staticmethod
     def _memory_id(owner_id: str, topic: str) -> str:

@@ -13,6 +13,8 @@ from graphs.nodes import (
     clustering_model_selection_planner_node, enqueue_clustering_node, poll_clustering_node,
     enqueue_clustering_tuning_node, poll_clustering_tuning_node, clustering_evaluation_node,
     route_task_unsupervised,
+    ts_analysis_node, ts_model_selection_planner_node, enqueue_ts_node, poll_ts_node,
+    ts_evaluation_node, route_task_ts,
 )
 
 from graphs.state import GraphState
@@ -204,3 +206,54 @@ def build_unsupervised_graph() -> StateGraph:
     builder.add_edge("reporting", "router")
 
     return builder
+
+
+def build_time_series_graph() -> StateGraph:
+    """Time-series forecasting pipeline.
+    Shares cleaning/EDA/visualization/feature-engineering with both other
+    graphs. Adds ts_analysis, ts_model_selection, ts_evaluation nodes.
+    """
+    builder = StateGraph(GraphState)
+    _add_shared_nodes_and_entry_edges(builder)
+
+    builder.add_node("feature_engineering_planner", feature_engineering_planner_node)
+    builder.add_node("feature_engineering", feature_engineering_node)
+    builder.add_node("ts_analysis", ts_analysis_node)
+    builder.add_node("ts_model_selection_planner", ts_model_selection_planner_node)
+    builder.add_node("enqueue_ts", enqueue_ts_node)
+    builder.add_node("poll_ts", poll_ts_node)
+    builder.add_node("ts_evaluation", ts_evaluation_node)
+    builder.add_node("reporting", reporting_node)
+
+    builder.add_conditional_edges(
+        "router",
+        route_task_ts,
+        {
+            "cleaning":              "cleaning",
+            "eda":                   "eda",
+            "ts_analysis":           "ts_analysis",
+            "visualization":         "visualization_planner",
+            "feature_engineering":   "feature_engineering_planner",
+            "model_selection":       "ts_model_selection_planner",
+            "hyperparameter_tuning": "enqueue_ts",
+            "evaluation":            "ts_evaluation",
+            "reporting":             "reporting",
+            END: END,
+        },
+    )
+
+    builder.add_edge("ts_analysis", "router")
+    builder.add_edge("ts_model_selection_planner", "enqueue_ts")
+    builder.add_edge("enqueue_ts", "poll_ts")
+    builder.add_edge("poll_ts", "router")
+    builder.add_edge("ts_evaluation", "router")
+    builder.add_edge("reporting", "router")
+    builder.add_edge("feature_engineering_planner", "feature_engineering")
+    builder.add_edge("feature_engineering", "router")
+
+    return builder
+
+
+# Default graph instance for tests and backwards compatibility
+builder = build_supervised_graph()
+

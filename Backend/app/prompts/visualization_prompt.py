@@ -34,6 +34,10 @@ Consider the following:
    - scatter
    - box
    - heatmap
+   - line
+   - violin
+   - pairplot
+   - pie
 
    General guidance:
    - Use bar charts for categorical counts or comparisons.
@@ -42,6 +46,21 @@ Consider the following:
    - Use box plots for numerical distributions and potential outliers,
      especially when comparing groups.
    - Use heatmaps for correlation relationships between numerical variables.
+   - Use line charts ONLY when x_column represents an inherent order or
+     sequence (a date/time column, or another clearly sequential numeric
+     column) and you want to show a trend — never for unordered categories.
+   - Use violin plots instead of box plots when the shape of the
+     distribution (not just quartiles/outliers) is the useful insight,
+     especially when comparing groups via group_by.
+   - Use pairplot to show relationships across SEVERAL numeric columns at
+     once, as an alternative to multiple individual scatter plots — best
+     when there are a moderate number of numeric columns (roughly 3-6);
+     avoid it when there are many numeric columns, since it becomes
+     unreadable.
+   - Use pie charts ONLY for a categorical column with a SMALL number of
+     unique values (roughly 2-6) where showing proportions of a whole is
+     the actual insight — never for high-cardinality categoricals, and
+     prefer a bar chart when comparing counts rather than proportions.
 
 5. AVOID REDUNDANCY
    - Do not generate multiple visualizations that provide essentially

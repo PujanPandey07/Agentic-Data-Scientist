@@ -16,12 +16,19 @@ load_dotenv()
 # access to the values within the .ini file in use.
 config = context.config
 
-# Override the placeholder sqlalchemy.url from alembic.ini with the real
-# connection string from the environment. We use DATABASE_URL_PSYCOPG (not
-# DATABASE_URL) because Alembic's default tooling runs synchronously, and
-# psycopg works fine sync — no need to fight asyncpg's async-only interface
-# for a one-off migration script.
-config.set_main_option("sqlalchemy.url", os.getenv("ALEMBIC_DATABASE_URL"))
+# Resolve the database URL flexibly from environment variables
+db_url = os.getenv("ALEMBIC_DATABASE_URL") or os.getenv("DATABASE_URL_PSYCOPG")
+if not db_url:
+    raw_url = os.getenv("DATABASE_URL", "")
+    if "+asyncpg" in raw_url:
+        db_url = raw_url.replace("+asyncpg", "+psycopg")
+    elif raw_url.startswith("postgresql://"):
+        db_url = raw_url.replace("postgresql://", "postgresql+psycopg://")
+    else:
+        db_url = raw_url
+
+if db_url:
+    config.set_main_option("sqlalchemy.url", db_url)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

@@ -4,6 +4,11 @@ from services.job_queue import enqueue_training_job, check_job_result
 import logging
 from sklearn.model_selection import train_test_split as sk_train_test_split
 from services.clustering_evaluation import clustering_evaluation_service
+from services.visualization_service import visualization_service
+from agents.clustering import clustering_model_selection_planner_agent
+from services.job_queue import enqueue_clustering_job
+from agents.time_series import time_series_agent
+from services.time_series_service import time_series_service
 
 from utilis.constraints import format_constraints, detect_forced_algorithm
 from schema.model_selection import ModelCandidate, ModelSelectionPlan
@@ -882,6 +887,24 @@ async def poll_clustering_tuning_node(state):
     state["clustering_elbow_curve"] = result.get("elbow_curve")
     state["clustering_linkage_matrix"] = result.get("linkage_matrix")
 
+    # Deterministic clustering charts — generated here (not via the LLM
+    # visualization planner) because this is the earliest point in the
+    # pipeline where cluster labels/elbow curve/linkage matrix actually
+    # exist. Appended into the SAME visualization_results list the
+    # earlier (EDA-based) visualization stage already populated, so
+    # reporting_node needs no changes to pick these up.
+    dataframe = _runtime_dataframe(state)
+    if dataframe is not None:
+        clustering_charts = visualization_service.generate_clustering_visualizations(
+            dataframe=dataframe,
+            cluster_labels=state.get("cluster_labels"),
+            elbow_curve=state.get("clustering_elbow_curve"),
+            linkage_matrix=state.get("clustering_linkage_matrix"),
+            dataset_id=state.get("dataset_id"),
+        )
+        state["visualization_results"] = (
+            state.get("visualization_results") or []) + clustering_charts
+
     msg = (
         f"Tuning complete. {result['n_clusters_found']} clusters found, "
         f"{result['scoring_metric']} score {result['best_trial_score']}. "
@@ -1095,6 +1118,9 @@ async def intent_router_node(state):
         await long_term_memory_manager.extract_and_store(
             conversation_id, user_query
         )
+
+    if state.get("intent"):
+        return state
 
     has_prior_report = (
         state.get("final_report") is not None
@@ -1525,14 +1551,384 @@ def route_task_unsupervised(state):
     if task == "feature_engineering":
         return "feature_engineering"
     if task == "model_selection":
-        return "clustering_model_selection_planner"
+        return "model_selection"
     if task == "visualization":
         return "visualization"
     if task == "hyperparameter_tuning":
-        return "enqueue_clustering_tuning"
+        return "hyperparameter_tuning"
     if task == "evaluation":
-        return "clustering_evaluation"
+        return "evaluation"
     if task == "reporting":
         return "reporting"
 
     return END
+
+
+async def clustering_model_selection_planner_node(state):
+    """LLM reasoning: decides WHICH clustering algorithms to try. Mirrors
+    model_selection_planner_node's shape, minus the forced-algorithm-only
+    fast path — clustering's forced_algorithm handling lives entirely in
+    ClusteringTrainingService.train() instead, since the LLM call here is
+    cheap and skipping it doesn't save much."""
+    constraints = (state.get("user_constraints")
+                   or {}).get("model_selection", [])
+
+    plan = await clustering_model_selection_planner_agent.plan(
+        user_query=state.get("user_query", ""),
+        dataset_summary=state.get("dataset_summary"),
+        eda_report=state.get("eda_report", {}),
+        feature_engineering_report=state.get("feature_engineering_report"),
+        constraints=constraints,
+        llm_config=state.get("llm_config"),
+    )
+
+    state["clustering_model_selection_plan"] = plan.model_dump()
+    return state
+
+
+async def enqueue_clustering_node(state):
+    dataset_id = state.get("dataset_id")
+    plan_dict = state.get("clustering_model_selection_plan")
+
+    if plan_dict is None:
+        state["clustering_training_report"] = {
+            "error": "Missing clustering model selection plan"}
+        state["_clustering_job_id"] = None
+        return advance_execution(
+            state, "model_selection", "Skipped: missing required inputs",
+            status="skipped",
+        )
+
+    job_id = await enqueue_clustering_job(dataset_id, plan_dict)
+    state["_clustering_job_id"] = job_id
+    return state
+
+
+async def poll_clustering_node(state):
+    job_id = state.get("_clustering_job_id")
+
+    if job_id is None:
+        # enqueue_clustering_node already handled a skip case above and
+        # advanced past model_selection itself — nothing to poll.
+        return state
+
+    outcome = await check_job_result(job_id)
+
+    if outcome is None:
+        interrupt({
+            "type": "job_status",
+            "job_type": "clustering",
+            "job_id": job_id,
+            "summary": "Clustering is running in the background — this may take a moment.",
+        })
+        return state
+
+    state["_clustering_job_id"] = None
+
+    if outcome["status"] == "failed":
+        state["clustering_training_report"] = {"error": outcome["error"]}
+        return advance_execution(
+            state, "model_selection",
+            f"Clustering failed: {outcome['error']}",
+            status="skipped",
+        )
+
+    result = outcome["result"]
+    state["clustering_training_report"] = result
+    state["clustering_model_path"] = result.get("model_path")
+    state["cluster_labels"] = result.get("cluster_labels")
+
+    msg = (
+        f"Clustering complete. Best: {result['best_algorithm']} "
+        f"({result['n_clusters_found']} clusters found, "
+        f"{result['scoring_metric']} score {result['best_score']}). "
+        f"Model saved to {result.get('model_path', 'N/A')}"
+    )
+    return advance_execution(state, "model_selection", msg)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# TIME SERIES NODES
+# ════════════════════════════════════════════════════════════════════════════
+
+async def ts_analysis_node(state):
+    """
+    Stationarity test + seasonal decomposition.
+    Produces ts_plan (from LLM) and ts_analysis_report (from maths).
+    """
+    dataset_id = state.get("dataset_id")
+    df = runtime_state_store.get_dataset(dataset_id)
+
+    if df is None:
+        return advance_execution(
+            state, "ts_analysis",
+            "Skipped: dataset not available in runtime cache.",
+            status="skipped",
+        )
+
+    dataset_summary = state.get("dataset_summary")
+    llm_config = state.get("llm_config")
+    user_query = state.get("user_query", "")
+
+    # 1. LLM produces the plan
+    try:
+        plan = await time_series_agent.analyze(user_query, dataset_summary, llm_config)
+    except Exception as exc:
+        logger.warning("TS agent analyze failed: %s", exc)
+        # Detect time column automatically as fallback
+        time_col = time_series_service.detect_time_column(df)
+        from schema.time_series_plan import TimeSeriesPlan
+        plan = TimeSeriesPlan(
+            time_column=time_col or df.columns[0],
+            target_column=state.get("target_column") or df.select_dtypes("number").columns[-1],
+        )
+
+    # Validate columns exist in df
+    if plan.time_column not in df.columns:
+        detected = time_series_service.detect_time_column(df)
+        if detected:
+            plan.time_column = detected
+
+    if plan.target_column not in df.columns:
+        nums = df.select_dtypes("number").columns.tolist()
+        if nums:
+            plan.target_column = nums[-1]
+
+    # 2. Parse datetime column
+    try:
+        df[plan.time_column] = pd.to_datetime(df[plan.time_column], infer_datetime_format=True)
+        df = df.sort_values(plan.time_column).reset_index(drop=True)
+        runtime_state_store.set_dataset(dataset_id, df)
+    except Exception as exc:
+        logger.warning("Could not parse time column: %s", exc)
+
+    # 3. Stationarity test
+    series = df[plan.target_column].dropna() if plan.target_column in df.columns else pd.Series(dtype=float)
+    _, is_stationary, n_diffs = time_series_service.make_stationary(series)
+    plan.is_stationary = is_stationary
+
+    # 4. Decomposition
+    decomp = time_series_service.decompose(
+        df, plan.time_column, plan.target_column, plan.frequency
+    )
+    plan.seasonality_detected = decomp.get("seasonality_detected", False)
+    plan.trend_detected = decomp.get("trend_detected", False)
+
+    ts_analysis_report = {
+        "time_column": plan.time_column,
+        "target_column": plan.target_column,
+        "n_rows": int(len(df)),
+        "frequency": plan.frequency,
+        "is_stationary": is_stationary,
+        "n_diffs_applied": n_diffs,
+        "trend_detected": plan.trend_detected,
+        "seasonality_detected": plan.seasonality_detected,
+        "decomposition": {
+            "trend_sample": decomp.get("trend", [])[:20],
+            "period": decomp.get("period"),
+        },
+    }
+
+    state["ts_plan"] = plan.model_dump()
+    state["ts_analysis_report"] = ts_analysis_report
+    # Propagate target_column into main state so shared nodes (e.g. cleaning) see it
+    state["target_column"] = plan.target_column
+
+    msg = (
+        f"Time-series analysis complete. "
+        f"time_col={plan.time_column}, target={plan.target_column}, "
+        f"stationary={is_stationary}, trend={plan.trend_detected}, "
+        f"seasonality={plan.seasonality_detected}"
+    )
+    return advance_execution(state, "ts_analysis", msg)
+
+
+async def ts_model_selection_planner_node(state):
+    """LLM picks the best lag config and model for forecasting."""
+    ts_plan_dict = state.get("ts_plan")
+    ts_analysis_report = state.get("ts_analysis_report") or {}
+
+    if ts_plan_dict is None:
+        state["ts_model_selection_plan"] = {
+            "primary_model": "xgboost_lags",
+            "lag_features": [1, 2, 3, 7],
+            "rolling_windows": [3, 7],
+            "reasoning": "Default — ts_plan missing.",
+        }
+        return state
+
+    from schema.time_series_plan import TimeSeriesPlan
+    ts_plan = TimeSeriesPlan.model_validate(ts_plan_dict)
+
+    try:
+        plan = await time_series_agent.select_model(
+            ts_plan, ts_analysis_report, state.get("llm_config")
+        )
+    except Exception as exc:
+        logger.warning("TS model selection failed: %s", exc)
+        plan = {
+            "primary_model": "xgboost_lags",
+            "lag_features": ts_plan.lag_features,
+            "rolling_windows": ts_plan.rolling_windows,
+            "reasoning": "Fallback due to error.",
+        }
+
+    state["ts_model_selection_plan"] = plan
+    return state
+
+
+async def enqueue_ts_node(state):
+    """Prepare and run the time-series training synchronously (no background job needed — fast)."""
+    dataset_id = state.get("dataset_id")
+    ts_plan_dict = state.get("ts_plan")
+    ts_model_plan = state.get("ts_model_selection_plan") or {}
+
+    df = runtime_state_store.get_dataset(dataset_id)
+
+    if df is None or ts_plan_dict is None:
+        state["ts_training_report"] = {"error": "Missing dataset or ts_plan"}
+        state["_ts_job_id"] = None
+        return advance_execution(
+            state, "model_selection", "Skipped: missing inputs", status="skipped"
+        )
+
+    from schema.time_series_plan import TimeSeriesPlan
+    ts_plan = TimeSeriesPlan.model_validate(ts_plan_dict)
+
+    lags = ts_model_plan.get("lag_features", ts_plan.lag_features)
+    rolling = ts_model_plan.get("rolling_windows", ts_plan.rolling_windows)
+
+    # Create lag features
+    try:
+        featured_df = time_series_service.create_lag_features(
+            df, ts_plan.target_column, lags, rolling, ts_plan.time_column
+        )
+    except Exception as exc:
+        state["ts_training_report"] = {"error": f"Feature engineering failed: {exc}"}
+        state["_ts_job_id"] = None
+        return advance_execution(state, "model_selection", f"TS feature error: {exc}", status="skipped")
+
+    # Chronological split
+    train_df, test_df = time_series_service.chronological_split(
+        featured_df, test_ratio=0.20, time_col=ts_plan.time_column
+    )
+
+    # Store splits for evaluation
+    runtime_state_store.set_dataset(f"{dataset_id}_ts_train", train_df)
+    runtime_state_store.set_dataset(f"{dataset_id}_ts_test", test_df)
+
+    feature_cols = time_series_service.get_feature_columns(
+        featured_df, ts_plan.target_column, ts_plan.time_column
+    )
+
+    if not feature_cols:
+        state["ts_training_report"] = {"error": "No lag features generated — too few rows?"}
+        state["_ts_job_id"] = None
+        return advance_execution(state, "model_selection", "No lag features", status="skipped")
+
+    # Fit model (synchronous — fast enough for forecasting)
+    result = time_series_service.fit_xgboost_lags(
+        train_df, test_df, ts_plan.target_column, feature_cols
+    )
+    result["feature_cols"] = feature_cols
+    result["lag_features_used"] = lags
+    result["rolling_windows_used"] = rolling
+
+    state["ts_training_report"] = result
+    state["_ts_job_id"] = "done"  # no actual background job
+
+    msg = (
+        f"TS training complete ({result.get('model', 'XGBoost')}): "
+        f"MAE={result.get('metrics', {}).get('mae')}, "
+        f"RMSE={result.get('metrics', {}).get('rmse')}, "
+        f"MAPE={result.get('metrics', {}).get('mape')}%"
+    )
+    return advance_execution(state, "model_selection", msg)
+
+
+async def poll_ts_node(state):
+    """TS training is synchronous — just pass through."""
+    # Training is done inline in enqueue_ts_node, so poll is always immediate
+    return state
+
+
+async def ts_evaluation_node(state):
+    """Holdout evaluation on the test set — computes final forecast metrics."""
+    ts_plan_dict = state.get("ts_plan")
+    ts_training = state.get("ts_training_report") or {}
+    dataset_id = state.get("dataset_id")
+
+    if "error" in ts_training or not ts_plan_dict:
+        state["ts_evaluation_report"] = {"error": "Training did not complete successfully"}
+        return advance_execution(state, "evaluation", "TS evaluation skipped", status="skipped")
+
+    from schema.time_series_plan import TimeSeriesPlan
+    ts_plan = TimeSeriesPlan.model_validate(ts_plan_dict)
+
+    metrics = ts_training.get("metrics", {})
+    n_test = ts_training.get("n_test", 0)
+
+    evaluation_report = {
+        "problem_type": "time_series",
+        "model": ts_training.get("model", "XGBoost"),
+        "n_test_samples": n_test,
+        "target_column": ts_plan.target_column,
+        "time_column": ts_plan.time_column,
+        "metrics": {
+            "mae":  metrics.get("mae"),
+            "rmse": metrics.get("rmse"),
+            "mape": metrics.get("mape"),
+        },
+        "feature_importances": ts_training.get("feature_importances", {}),
+        "predictions_sample": ts_training.get("predictions", [])[:20],
+        "actuals_sample": ts_training.get("actuals", [])[:20],
+    }
+
+    # MAPE-based quality label
+    mape = metrics.get("mape")
+    if mape is not None:
+        if mape < 5:
+            evaluation_report["quality"] = "excellent"
+        elif mape < 10:
+            evaluation_report["quality"] = "good"
+        elif mape < 20:
+            evaluation_report["quality"] = "fair"
+        else:
+            evaluation_report["quality"] = "poor"
+
+    state["ts_evaluation_report"] = evaluation_report
+    msg = f"TS evaluation: MAE={metrics.get('mae')}, RMSE={metrics.get('rmse')}, MAPE={metrics.get('mape')}%"
+    return advance_execution(state, "evaluation", msg)
+
+
+def route_task_ts(state) -> str:
+    """
+    Router for the time-series graph.
+
+    Returns task-name strings that EXACTLY match the keys in
+    build_time_series_graph()'s add_conditional_edges path map.
+    """
+    current_task = state.get("current_task")
+    remaining = state.get("remaining_tasks", [])
+
+    if not current_task and not remaining:
+        return END
+
+    task = current_task or (remaining[0] if remaining else None)
+    if task is None:
+        return END
+
+    # Map plan task names → path-map keys
+    _MAP = {
+        "cleaning":              "cleaning",
+        "eda":                   "eda",
+        "ts_analysis":           "ts_analysis",
+        "visualization":         "visualization",
+        "feature_engineering":   "feature_engineering",
+        "model_selection":       "model_selection",
+        "hyperparameter_tuning": "hyperparameter_tuning",
+        "evaluation":            "evaluation",
+        "reporting":             "reporting",
+    }
+    return _MAP.get(task, END)
+

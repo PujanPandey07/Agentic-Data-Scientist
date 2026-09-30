@@ -1,0 +1,260 @@
+{
+  "dataset_id": "cea2fa1e-96fa-4ef7-a294-d4019b121d31",
+  "generated_at": "2026-09-28T18:10:15.498132+00:00",
+  "dataset": {
+    "rows": 150,
+    "columns": 5,
+    "column_names": [
+      "sepal_length",
+      "sepal_width",
+      "petal_length",
+      "petal_width",
+      "species"
+    ],
+    "data_types": {
+      "sepal_length": "float64",
+      "sepal_width": "float64",
+      "petal_length": "float64",
+      "petal_width": "float64",
+      "species": "str"
+    },
+    "numerical_columns": [
+      "sepal_length",
+      "sepal_width",
+      "petal_length",
+      "petal_width"
+    ],
+    "categorical_columns": [
+      "species"
+    ],
+    "missing_values": {
+      "sepal_length": 0,
+      "sepal_width": 0,
+      "petal_length": 0,
+      "petal_width": 0,
+      "species": 0
+    },
+    "duplicate_rows": 3,
+    "memory_usage": "7.94 KB",
+    "has_missing_values": false,
+    "has_duplicates": true,
+    "potential_target_columns": [],
+    "target_column": "N/A",
+    "problem_type": "clustering",
+    "final_overview": {
+      "final_shape": [
+        143,
+        6
+      ],
+      "columns": [
+        "sepal_length",
+        "sepal_width",
+        "petal_length",
+        "species_Iris-setosa",
+        "species_Iris-versicolor",
+        "species_Iris-virginica"
+      ]
+    }
+  },
+  "cleaning": {
+    "original_rows": 143,
+    "final_rows": 143,
+    "duplicates_removed": 0,
+    "missing_values_remaining": 0
+  },
+  "eda": {
+    "shape": {
+      "rows": 143,
+      "columns": 4
+    },
+    "column_names": [
+      "sepal_length",
+      "sepal_width",
+      "petal_length",
+      "species"
+    ],
+    "numerical_columns": [
+      "sepal_length",
+      "sepal_width",
+      "petal_length"
+    ],
+    "categorical_columns": [
+      "species"
+    ],
+    "numerical_summary": {
+      "sepal_length": {
+        "count": 143.0,
+        "mean": 0.0285,
+        "std": 0.9692,
+        "min": -1.7939,
+        "25%": -0.859,
+        "50%": -0.041,
+        "75%": 0.6602,
+        "max": 2.4132
+      },
+      "sepal_width": {
+        "count": 143.0,
+        "mean": 0.0483,
+        "std": 0.9877,
+        "min": -2.3131,
+        "25%": -0.5193,
+        "50%": -0.0709,
+        "75%": 0.6017,
+        "max": 3.0681
+      },
+      "petal_length": {
+        "count": 143.0,
+        "mean": 0.0016,
+        "std": 0.993,
+        "min": -1.5827,
+        "25%": -1.2417,
+        "50%": 0.3498,
+        "75%": 0.7476,
+        "max": 1.7707
+      }
+    },
+    "categorical_summary": {
+      "species": {
+        "unique_values": 3,
+        "value_counts": {
+          "Iris-versicolor": 50,
+          "Iris-virginica": 47,
+          "Iris-setosa": 46
+        }
+      }
+    },
+    "missing_values": {
+      "sepal_length": 0,
+      "sepal_width": 0,
+      "petal_length": 0,
+      "species": 0
+    },
+    "correlation": {
+      "sepal_length": {
+        "sepal_length": 1.0,
+        "sepal_width": -0.1074,
+        "petal_length": 0.8681
+      },
+      "sepal_width": {
+        "sepal_length": -0.1074,
+        "sepal_width": 1.0,
+        "petal_length": -0.424
+      },
+      "petal_length": {
+        "sepal_length": 0.8681,
+        "sepal_width": -0.424,
+        "petal_length": 1.0
+      }
+    }
+  },
+  "visualization": {
+    "num_charts": 2,
+    "charts": [
+      {
+        "chart_type": "pairplot",
+        "columns": [
+          "sepal_length",
+          "sepal_width",
+          "petal_length"
+        ],
+        "group_by": null,
+        "path": "outputs\\charts\\cea2fa1e-96fa-4ef7-a294-d4019b121d31\\pairplot.png"
+      },
+      {
+        "chart_type": "heatmap",
+        "columns": [
+          "sepal_length",
+          "sepal_width",
+          "petal_length"
+        ],
+        "path": "outputs\\charts\\cea2fa1e-96fa-4ef7-a294-d4019b121d31\\correlation_heatmap.png"
+      }
+    ]
+  },
+  "feature_engineering": {
+    "original_shape": [
+      143,
+      4
+    ],
+    "final_shape": [
+      143,
+      6
+    ],
+    "strategy": "balanced",
+    "steps_executed": 3,
+    "steps_failed": 0,
+    "step_details": [
+      {
+        "action": "drop_high_correlation",
+        "columns": [
+          "sepal_length",
+          "sepal_width",
+          "petal_length",
+          "petal_width"
+        ],
+        "status": "success",
+        "details": "No correlations above 0.9, nothing dropped",
+        "target_column_excluded": false
+      },
+      {
+        "action": "one_hot_encode",
+        "columns": [
+          "species"
+        ],
+        "status": "success",
+        "details": "One-hot encoded ['species'], added 3 columns",
+        "target_column_excluded": false
+      },
+      {
+        "action": "standard_scale",
+        "columns": [
+          "sepal_length",
+          "sepal_width",
+          "petal_length",
+          "petal_width"
+        ],
+        "status": "success",
+        "details": "Standard scaled ['sepal_length', 'sepal_width', 'petal_length']",
+        "target_column_excluded": false
+      }
+    ],
+    "columns_added": [
+      "species_Iris-setosa",
+      "species_Iris-versicolor",
+      "species_Iris-virginica"
+    ],
+    "columns_removed": [],
+    "warnings": [
+      "Duplicate rows should be removed before applying this pipeline; the current plan does not include row\u2011level deduplication.",
+      "No target column is present, so there is no risk of target leakage."
+    ],
+    "notes": [
+      "Balanced strategy inferred: the request is for a full clustering pipeline without aggressive feature expansion.",
+      "If after dropping high\u2011correlation columns any numeric column is removed, adjust the scaling step accordingly."
+    ],
+    "target_column_guard_triggered": 0
+  },
+  "model_selection": {
+    "strategy": "quick",
+    "sample_size": null,
+    "candidates": [],
+    "cv_folds": 5,
+    "scoring_metric": "accuracy",
+    "time_budget_minutes": 2,
+    "notes": [
+      "Problem type is clustering with no target column, but the current ModelSelectionPlan schema only supports supervised algorithms and scoring metrics.",
+      "No suitable clustering algorithms (e.g., KMeans, AgglomerativeClustering) are listed in the allowed 'algorithm' enumeration, and no unsupervised scoring metrics (e.g., silhouette_score) are available.",
+      "Therefore, no candidates can be selected under the strict schema constraints. Consider extending the system to include clustering algorithms and appropriate evaluation metrics."
+    ],
+    "forced_algorithm": null
+  },
+  "training": null,
+  "hyperparameter_tuning": null,
+  "evaluation": null,
+  "conclusions": {
+    "best_algorithm": "N/A",
+    "n_clusters": "N/A",
+    "quality_score": "N/A",
+    "recommendation": "No clustering was part of this run \u2014 see cleaning/EDA/visualization results above."
+  }
+}

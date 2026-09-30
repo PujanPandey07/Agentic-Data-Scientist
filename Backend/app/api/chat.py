@@ -47,8 +47,11 @@ def _graph_for(request: Request, conversation: Conversation):
     graph it started on — pipeline_family is persisted on the Conversation
     row at creation time (api/runs.py) specifically so this lookup is
     possible on every subsequent message, including resumes."""
-    if getattr(conversation, "pipeline_family", "supervised") == "unsupervised":
+    family = getattr(conversation, "pipeline_family", "supervised")
+    if family == "unsupervised":
         return request.app.state.unsupervised_graph
+    if family == "time_series":
+        return request.app.state.time_series_graph
     return request.app.state.graph
 
 
@@ -181,6 +184,7 @@ async def chat(
                 "user_query": payload.user_query,
                 "dataset_id": snapshot_values.get("dataset_id"),
                 "user_id": user_id,
+                "intent": None,  # clear the stale intent from the previous turn
             }
             result = await graph.ainvoke(follow_up_state, config=config)
 

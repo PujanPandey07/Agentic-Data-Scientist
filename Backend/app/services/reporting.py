@@ -20,12 +20,9 @@ class ReportingService:
         completed = state.get("completed_tasks") or []
         problem_type = self._get_problem_type(state)
         is_clustering = problem_type == "clustering"
+        is_time_series = problem_type == "time_series"
 
         ran_feature_engineering = "feature_engineering" in completed
-        # "model_selection"/"hyperparameter_tuning"/"evaluation" are the
-        # SAME stage-name strings for both families (see
-        # route_task_unsupervised) — which underlying report field to read
-        # is decided by problem_type below, not by a different stage name.
         ran_model_selection = "model_selection" in completed
         ran_hyperparameter_tuning = "hyperparameter_tuning" in completed
         ran_evaluation = "evaluation" in completed
@@ -43,6 +40,10 @@ class ReportingService:
                 state.get("clustering_evaluation_report")
                 if ran_evaluation else None
             )
+        elif is_time_series:
+            training_section = state.get("ts_training_report") if ran_model_selection else None
+            tuning_section = None
+            evaluation_section = state.get("ts_evaluation_report") if ran_evaluation else None
         else:
             training_section = (
                 state.get("training_report")
@@ -81,12 +82,16 @@ class ReportingService:
             "training": training_section,
             "hyperparameter_tuning": tuning_section,
             "evaluation": evaluation_section,
+            # Time series specific sections
+            "ts_analysis": state.get("ts_analysis_report") if is_time_series else None,
             "conclusions": (
                 self._build_clustering_conclusions(
                     state, ran_model_selection, ran_evaluation,
                     training_section, tuning_section, evaluation_section,
                 )
                 if is_clustering else
+                self._build_ts_conclusions(state, ran_model_selection, ran_evaluation)
+                if is_time_series else
                 self._build_conclusions(
                     state, ran_model_selection, ran_evaluation)
             ),
@@ -308,6 +313,74 @@ class ReportingService:
                 "warning",
                 "Evaluation ran, but quality metrics could not be computed "
                 "(likely fewer than 2 real clusters found).",
+            )
+
+        return conclusions
+
+    def _build_ts_conclusions(
+        self,
+        state: dict,
+        ran_model_selection: bool,
+        ran_evaluation: bool,
+    ) -> dict:
+        """Conclusions for time-series runs — uses MAE/RMSE/MAPE instead of accuracy."""
+        if not ran_model_selection:
+            return {
+                "best_model": "N/A",
+                "recommendation": (
+                    "No forecasting model was trained in this run — "
+                    "see cleaning/EDA/ts_analysis results above."
+                ),
+            }
+
+        training = state.get("ts_training_report") or {}
+        evaluation = state.get("ts_evaluation_report") or {}
+
+        metrics = evaluation.get("metrics") or training.get("metrics") or {}
+        mape = metrics.get("mape")
+        mae  = metrics.get("mae")
+        rmse = metrics.get("rmse")
+
+        conclusions = {
+            "best_model": training.get("model", "XGBoost"),
+            "mae":  mae,
+            "rmse": rmse,
+            "mape": mape,
+            "n_test_samples": evaluation.get("n_test_samples"),
+            "recommendation": "N/A",
+        }
+
+        if not ran_evaluation:
+            conclusions["recommendation"] = (
+                "Model was trained but evaluation did not run in this session."
+            )
+            return conclusions
+
+        if mape is not None:
+            if mape < 5:
+                conclusions["recommendation"] = (
+                    f"Excellent forecast accuracy (MAPE {mape:.1f}%). "
+                    "Model is production-ready for this dataset."
+                )
+            elif mape < 10:
+                conclusions["recommendation"] = (
+                    f"Good forecast accuracy (MAPE {mape:.1f}%). "
+                    "Consider adding more lag features or external regressors."
+                )
+            elif mape < 20:
+                conclusions["recommendation"] = (
+                    f"Fair forecast accuracy (MAPE {mape:.1f}%). "
+                    "The series may have high noise — try longer training history or seasonal features."
+                )
+            else:
+                conclusions["recommendation"] = (
+                    f"Low forecast accuracy (MAPE {mape:.1f}%). "
+                    "Investigate data quality, outliers, or structural breaks in the series."
+                )
+        elif mae is not None:
+            conclusions["recommendation"] = (
+                f"Forecast complete. MAE={mae}, RMSE={rmse}. "
+                "MAPE could not be computed (target contains zeros)."
             )
 
         return conclusions

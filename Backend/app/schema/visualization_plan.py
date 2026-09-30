@@ -9,6 +9,19 @@ class ChartType(str, Enum):
     SCATTER = "scatter"
     BOX = "box"
     HEATMAP = "heatmap"
+    LINE = "line"
+    VIOLIN = "violin"
+    PAIRPLOT = "pairplot"
+    PIE = "pie"
+    # Clustering-only chart types — never emitted by the LLM planner
+    # (visualization_prompt is intentionally left untouched), since the
+    # data they need (cluster labels, an n_clusters sweep, a linkage
+    # matrix) doesn't exist yet when the planner runs. Generated
+    # deterministically instead, later in the clustering pipeline, once
+    # that data exists — see VisualizationService.generate_clustering_visualizations.
+    CLUSTER_SCATTER = "cluster_scatter"
+    ELBOW = "elbow"
+    DENDROGRAM = "dendrogram"
 
 
 class VisualizationPlan(BaseModel):
@@ -43,7 +56,27 @@ class VisualizationPlan(BaseModel):
                 raise ValueError(
                     "chart_type='box' requires y_column to be set."
                 )
-        # heatmap needs no explicit column — it uses all numeric columns
+        elif self.chart_type == ChartType.LINE:
+            if not self.x_column or not self.y_column:
+                raise ValueError(
+                    "chart_type='line' requires both x_column and "
+                    "y_column to be set."
+                )
+        elif self.chart_type == ChartType.VIOLIN:
+            if not self.y_column:
+                raise ValueError(
+                    "chart_type='violin' requires y_column to be set."
+                )
+        elif self.chart_type == ChartType.PIE:
+            if not self.x_column:
+                raise ValueError(
+                    "chart_type='pie' requires x_column to be set (a "
+                    "categorical column with a small number of unique values)."
+                )
+        # heatmap and pairplot need no explicit column — both use all
+        # numeric columns. The three clustering types are never
+        # LLM-planned in the first place (see ChartType), so this
+        # validator never actually runs against them in practice.
         return self
 
 

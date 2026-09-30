@@ -13,6 +13,7 @@ from services.runtime_state import runtime_state_store
 from cache.dataset_cache import dataset_summary_cache
 from analysis.inspector import dataset_inspector
 from agents.planner import planner_agent
+from agents.intent_router import intent_router_agent
 
 router = APIRouter(prefix="/api", tags=["Runs"])
 
@@ -51,17 +52,33 @@ async def create_run(
     async with async_session() as session:
         llm_config = await resolve_user_llm_config(session, user_id)
 
-    plan = await planner_agent.plan(payload.user_query, dataset_summary, llm_config)
-
-    # THE dispatch decision. Every future message on this thread must be
-    # routed to the SAME graph — this is why pipeline_family is persisted
-    # on the Conversation row below, not just used once here.
-    family = "unsupervised" if plan.problem_type == "clustering" else "supervised"
-    graph = (
-        request.app.state.unsupervised_graph
-        if family == "unsupervised"
-        else request.app.state.graph
+    # Classify intent first — if user is just asking a question (e.g. "explain this dataset"),
+    # do NOT run the full ML planner agent. Answer directly and save tokens/time.
+    classification = await intent_router_agent.classify(
+        user_query=payload.user_query,
+        has_prior_report=False,
+        pipeline_in_progress=False,
+        llm_config=llm_config,
     )
+
+    if classification.intent == "run_pipeline":
+        plan = await planner_agent.plan(payload.user_query, dataset_summary, llm_config)
+        if plan.problem_type == "clustering":
+            family = "unsupervised"
+            graph = request.app.state.unsupervised_graph
+        elif plan.problem_type == "time_series":
+            family = "time_series"
+            graph = request.app.state.time_series_graph
+        else:
+            family = "supervised"
+            graph = request.app.state.graph
+        target_column = plan.target_column
+    else:
+        # User asked a direct/advisory question (e.g. "explain this dataset")
+        plan = None
+        family = "supervised"
+        graph = request.app.state.graph
+        target_column = None
 
     # Make the loaded dataframe available to the graph's runtime cache the
     # same way dataset_node normally would, since dataset_node is being
@@ -82,7 +99,7 @@ async def create_run(
         "dataframe": None,
         "dataset_summary": dataset_summary,
         "analysis_plan": plan,
-        "target_column": plan.target_column,
+        "target_column": target_column,
         "cleaning_report": None,
         "eda_report": None,
         "visualization_plan": None,
@@ -93,7 +110,7 @@ async def create_run(
         "remaining_tasks": [],
         "completed_tasks": [],
         "execution_logs": [],
-        "intent": None,
+        "intent": classification.intent,
         "direct_answer": None,
     }
 

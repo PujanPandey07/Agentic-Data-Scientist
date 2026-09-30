@@ -124,6 +124,15 @@ class GraphState(TypedDict):
     clustering_elbow_curve: list[dict] | None
     clustering_linkage_matrix: list | None
 
+    # --- Time Series ---
+    # ts_plan holds TimeSeriesPlan as a plain dict (serialisable for LangGraph)
+    ts_plan: dict | None
+    ts_analysis_report: dict | None          # stationarity + decomposition
+    ts_model_selection_plan: dict | None     # chosen model + lag config
+    ts_training_report: dict | None          # fit results: MAE, RMSE, MAPE
+    ts_evaluation_report: dict | None        # holdout evaluation metrics
+    _ts_job_id: str | None                   # background job id (training)
+
     # reporting
     final_report: dict | None
 

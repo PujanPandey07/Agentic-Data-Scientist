@@ -1,7 +1,7 @@
 # api/runs.py
 import uuid
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from core.db import async_session
 from core.models import Conversation, Message
@@ -14,6 +14,7 @@ from cache.dataset_cache import dataset_summary_cache
 from analysis.inspector import dataset_inspector
 from agents.planner import planner_agent
 from agents.intent_router import intent_router_agent
+from utilis.llm_plan import LLMUserError
 
 router = APIRouter(prefix="/api", tags=["Runs"])
 
@@ -52,33 +53,39 @@ async def create_run(
     async with async_session() as session:
         llm_config = await resolve_user_llm_config(session, user_id)
 
-    # Classify intent first — if user is just asking a question (e.g. "explain this dataset"),
-    # do NOT run the full ML planner agent. Answer directly and save tokens/time.
-    classification = await intent_router_agent.classify(
-        user_query=payload.user_query,
-        has_prior_report=False,
-        pipeline_in_progress=False,
-        llm_config=llm_config,
-    )
+    try:
+        # Classify intent first — if user is just asking a question (e.g. "explain this dataset"),
+        # do NOT run the full ML planner agent. Answer directly and save tokens/time.
+        classification = await intent_router_agent.classify(
+            user_query=payload.user_query,
+            has_prior_report=False,
+            pipeline_in_progress=False,
+            llm_config=llm_config,
+        )
 
-    if classification.intent == "run_pipeline":
-        plan = await planner_agent.plan(payload.user_query, dataset_summary, llm_config)
-        if plan.problem_type == "clustering":
-            family = "unsupervised"
-            graph = request.app.state.unsupervised_graph
-        elif plan.problem_type == "time_series":
-            family = "time_series"
-            graph = request.app.state.time_series_graph
+        if classification.intent == "run_pipeline":
+            plan = await planner_agent.plan(payload.user_query, dataset_summary, llm_config)
+            if plan.problem_type == "clustering":
+                family = "unsupervised"
+                graph = request.app.state.unsupervised_graph
+            elif plan.problem_type == "time_series":
+                family = "time_series"
+                graph = request.app.state.time_series_graph
+            else:
+                family = "supervised"
+                graph = request.app.state.graph
+            target_column = plan.target_column
         else:
+            # User asked a direct/advisory question (e.g. "explain this dataset")
+            plan = None
             family = "supervised"
             graph = request.app.state.graph
-        target_column = plan.target_column
-    else:
-        # User asked a direct/advisory question (e.g. "explain this dataset")
-        plan = None
-        family = "supervised"
-        graph = request.app.state.graph
-        target_column = None
+            target_column = None
+
+    except LLMUserError as e:
+        # Auth failure, quota exhaustion, or context-too-large — return a
+        # clean 400 with an actionable message instead of a raw 500.
+        raise HTTPException(status_code=400, detail=str(e))
 
     # Make the loaded dataframe available to the graph's runtime cache the
     # same way dataset_node normally would, since dataset_node is being

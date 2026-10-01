@@ -1,3 +1,4 @@
+from typing import Optional
 from pydantic import BaseModel
 
 
@@ -8,4 +9,4 @@ class UploadResponse(BaseModel):
     stored_filename: str
     file_size: int
     file_type: str
-    mime_type: str
+    mime_type: Optional[str] = None

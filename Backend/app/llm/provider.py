@@ -35,8 +35,14 @@ def get_llm(user_llm_config: dict | None = None):
 
     If user_llm_config is provided (shape: {"provider", "api_key",
     "model_name"}), builds a client using that configuration.
-    Falls back to the environment-based default if missing or invalid.
+    Raises LLMUserError if the user config is present but invalid —
+    we never silently fall back to the system model, because that would
+    charge the wrong account and mislead the user about which model ran.
+    Falls back to the environment-based default ONLY when no user config
+    exists at all (i.e. the user hasn't added a BYOK key).
     """
+    from utilis.llm_plan import LLMUserError  # local import to avoid circular
+
     if user_llm_config is not None:
         try:
             return _build_client(
@@ -45,9 +51,16 @@ def get_llm(user_llm_config: dict | None = None):
                 model_name=user_llm_config.get("model_name", "gemini-2.0-flash"),
             )
         except Exception as e:
-            logger.warning(
-                f"Failed to build user LLM client: {e}. Falling back to default system LLM."
+            logger.error(
+                "Failed to build user LLM client (provider=%s, model=%s): %s",
+                user_llm_config.get("provider"),
+                user_llm_config.get("model_name"),
+                e,
             )
+            raise LLMUserError(
+                "Your API key configuration is invalid or the model is unavailable. "
+                "Please go to Settings → API Keys, verify your key and model, then try again."
+            ) from e
 
     provider = os.getenv("LLM_PROVIDER", "gemini").lower()
 

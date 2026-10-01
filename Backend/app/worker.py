@@ -152,9 +152,39 @@ async def tune_clustering_job(ctx, dataset_id: str, best_candidate_dict: dict,
     return report
 
 
+import time
+from pathlib import Path
+from arq import cron
+
+_CACHE_MAX_AGE_SECONDS = 24 * 60 * 60   # 24 hours
+
+
+async def cleanup_runtime_cache_job(ctx):
+    """Delete Parquet files in runtime_cache that are older than 24 hours.
+    Runs every 6 hours via ARQ cron so the shared Docker volume never grows
+    unbounded. The main API process also sweeps on startup for files that
+    pre-date the current container session.
+    """
+    from services.runtime_state import CACHE_DIR
+    cutoff = time.time() - _CACHE_MAX_AGE_SECONDS
+    removed = 0
+    for f in Path(CACHE_DIR).glob("*.parquet"):
+        try:
+            if f.stat().st_mtime < cutoff:
+                f.unlink(missing_ok=True)
+                removed += 1
+        except Exception:
+            pass  # file already gone or permission issue — skip
+    print(f"[cache cleanup] removed {removed} stale Parquet file(s)")
+    return {"removed": removed}
+
+
 class WorkerSettings:
     functions = [ping, train_model_job, tune_model_job,
                  clustering_job, tune_clustering_job]
+    cron_jobs = [
+        cron(cleanup_runtime_cache_job, hour={0, 6, 12, 18}, minute=0),
+    ]
     redis_settings = RedisSettings(host=REDIS_HOST, port=REDIS_PORT)
     on_startup = startup
     on_shutdown = shutdown

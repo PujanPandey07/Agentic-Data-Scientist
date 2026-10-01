@@ -10,6 +10,7 @@ from core.db import get_db_session
 from core.models import Conversation, Message
 from core.security import get_current_user_id
 from schema.chat import ChatRequest, ChatResponse, ChatPendingResponse
+from utilis.llm_plan import LLMUserError
 
 router = APIRouter(prefix="/api", tags=["Chat"])
 logger = logging.getLogger(__name__)
@@ -192,6 +193,39 @@ async def chat(
         # Our own deliberate 400s above — not a graph crash, let them
         # propagate as-is.
         raise
+
+    except LLMUserError as llm_err:
+        # Auth failure, quota exhaustion, or context-too-large from the
+        # user's own BYOK key. The message is already user-friendly.
+        # Still recover the thread so the next message isn't stuck.
+        logger.warning(
+            "LLM user error for thread %s: %s", payload.thread_id, llm_err
+        )
+        error_message = str(llm_err)
+        recovery_values = {
+            "direct_answer": error_message,
+            "_training_job_id": None,
+            "_tuning_job_id": None,
+        }
+        await graph.aupdate_state(config, recovery_values, as_node="direct_answer")
+
+        session.add(Message(
+            conversation_id=conversation.id,
+            role="user",
+            content=payload.user_query or "(decision)",
+        ))
+        session.add(Message(
+            conversation_id=conversation.id,
+            role="assistant",
+            content=error_message,
+        ))
+        await session.commit()
+        return ChatResponse(
+            interrupted=False,
+            interrupt=None,
+            intent=None,
+            direct_answer=error_message,
+        )
 
     except Exception:
         # Any unexpected crash inside the graph (a node raising instead of

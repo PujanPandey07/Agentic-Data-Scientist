@@ -372,8 +372,8 @@ function Composer({ onStart }) {
 
   async function handleQuickAnalyze() {
     if (!file) return;
-    const isCsv = /\.csv$/i.test(file.name) || file.type?.includes("csv");
-    if (!isCsv) { setErrorMsg("Only CSV files can be quick-analyzed."); return; }
+    const isSupported = /\.(csv|tsv|tab|xlsx|xls|parquet|pq|json|feather)$/i.test(file.name);
+    if (!isSupported) { setErrorMsg("Please upload a supported tabular dataset (CSV, TSV, Excel, Parquet, JSON, or Feather)."); return; }
     setErrorMsg("");
     setQuickResult(null);
     setQuickLoading(true);
@@ -446,7 +446,7 @@ function Composer({ onStart }) {
             ref={fileInputRef}
             id="fileInput"
             type="file"
-            accept=".csv,.xlsx,.xls"
+            accept=".csv,.tsv,.tab,.xlsx,.xls,.parquet,.pq,.json,.feather"
             onChange={(e) => { setFile(e.target.files[0]); setQuickResult(null); }}
             className="hidden"
           />
@@ -468,7 +468,7 @@ function Composer({ onStart }) {
               <p className="text-sm font-medium mb-1" style={{ color: "#555" }}>
                 Drop your file here or click to browse
               </p>
-              <p className="text-xs" style={{ color: "#aaa" }}>CSV, XLSX, or XLS files supported</p>
+              <p className="text-xs" style={{ color: "#aaa" }}>CSV, TSV, Excel, Parquet, JSON, or Feather files up to 100MB</p>
             </>
           )}
         </div>

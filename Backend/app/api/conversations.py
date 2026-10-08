@@ -1,6 +1,8 @@
 # api/conversations.py — full updated file
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db import get_db_session
@@ -13,6 +15,9 @@ from schema.conversation import (
     MessageListResponse,
 )
 from api.chat import _get_owned_conversation
+from services.short_term_memory import short_term_memory_manager
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/conversations", tags=["Conversations"])
 
@@ -77,6 +82,11 @@ async def delete_conversation(
     Returns 204 No Content on success — same deliberate 404 for
     'not found' and 'belongs to someone else' to avoid leaking
     whether a thread_id exists at all.
+
+    Also cleans up:
+    - short_term_memories row keyed by conversation_id / thread_id
+    - LangGraph checkpoint rows (checkpoints, checkpoint_blobs,
+      checkpoint_writes) keyed by thread_id
     """
     # Ownership check — raises 404 if not found or not theirs.
     conversation = await _get_owned_conversation(session, thread_id, user_id)
@@ -88,3 +98,42 @@ async def delete_conversation(
     )
     await session.delete(conversation)
     await session.commit()
+
+    # ── Clean up short-term memory row for this conversation ────────────────
+    try:
+        await short_term_memory_manager.invalidate(thread_id)
+    except Exception:
+        logger.warning(
+            "Could not invalidate short-term memory for thread %s", thread_id,
+            exc_info=True,
+        )
+
+    # ── Clean up LangGraph checkpoint rows keyed by thread_id ───────────────
+    # LangGraph stores checkpoints in three tables with a thread_id text column.
+    # We issue raw DELETE statements because LangGraph doesn't expose a cleanup
+    # API we can call safely here.
+    _LANGGRAPH_TABLES = (
+        "checkpoint_blobs",
+        "checkpoint_writes",
+        "checkpoints",
+    )
+    for table in _LANGGRAPH_TABLES:
+        try:
+            await session.execute(
+                text(f"DELETE FROM {table} WHERE thread_id = :tid"),  # noqa: S608
+                {"tid": thread_id},
+            )
+        except Exception:
+            # Table may not exist in all deployment configurations — log and
+            # continue so the delete endpoint never fails because of this.
+            logger.warning(
+                "Could not delete LangGraph rows from %s for thread %s",
+                table, thread_id, exc_info=True,
+            )
+    try:
+        await session.commit()
+    except Exception:
+        logger.warning(
+            "Could not commit LangGraph checkpoint cleanup for thread %s",
+            thread_id, exc_info=True,
+        )

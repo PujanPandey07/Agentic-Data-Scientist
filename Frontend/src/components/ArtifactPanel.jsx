@@ -294,8 +294,9 @@ function ArtifactPanel({ threadId, onClose }) {
   // ── render ──────────────────────────────────────────────────────────────
 
   return (
-    <div className="shrink-0 flex flex-col h-full"
-      style={{ width: 480, background: "white", borderLeft: "1px solid #e8e8e8" }}>
+    <div
+      className="fixed inset-0 z-50 md:static md:z-auto shrink-0 flex flex-col h-full w-full md:w-[480px] bg-white border-l border-[#e8e8e8] shadow-2xl md:shadow-none"
+    >
 
       {/* Header */}
       <div className="shrink-0 flex items-center justify-between px-4 py-3"

@@ -65,6 +65,24 @@ async def create_run(
 
         if classification.intent == "run_pipeline":
             plan = await planner_agent.plan(payload.user_query, dataset_summary, llm_config)
+
+            # Deterministic overrides for explicit instructions:
+            from graphs.plan_validation import extract_explicit_target_column
+            explicit_target = extract_explicit_target_column(payload.user_query, dataset_summary)
+            if explicit_target:
+                plan.target_column = explicit_target
+
+            uq_lower = payload.user_query.lower()
+            if "regression" in uq_lower:
+                plan.problem_type = "regression"
+            elif "classification" in uq_lower:
+                plan.problem_type = "classification"
+            elif "cluster" in uq_lower:
+                plan.problem_type = "clustering"
+                plan.target_column = None
+            elif "time series" in uq_lower or "forecast" in uq_lower:
+                plan.problem_type = "time_series"
+
             if plan.problem_type == "clustering":
                 family = "unsupervised"
                 graph = request.app.state.unsupervised_graph

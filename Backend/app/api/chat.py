@@ -11,6 +11,13 @@ from core.models import Conversation, Message
 from core.security import get_current_user_id
 from schema.chat import ChatRequest, ChatResponse, ChatPendingResponse
 from utilis.llm_plan import LLMUserError
+from services.dataset_service import dataset_service
+from services.llm_config import resolve_user_llm_config
+from services.runtime_state import runtime_state_store
+from cache.dataset_cache import dataset_summary_cache
+from analysis.inspector import dataset_inspector
+from agents.planner import planner_agent
+from agents.intent_router import intent_router_agent
 
 router = APIRouter(prefix="/api", tags=["Chat"])
 logger = logging.getLogger(__name__)
@@ -181,13 +188,105 @@ async def chat(
                     detail="user_query is required when the conversation isn't waiting on a decision.",
                 )
             user_message_content = payload.user_query
+
+            # Check if this query is requesting a new pipeline run
+            dataset_id = snapshot_values.get("dataset_id") or conversation.dataset_id
+            llm_config = await resolve_user_llm_config(session, user_id)
+            has_prior = bool(snapshot_values.get("final_report"))
+            pipe_in_progress = bool(snapshot_values.get("current_task") or snapshot_values.get("remaining_tasks"))
+
+            classification = await intent_router_agent.classify(
+                user_query=payload.user_query,
+                has_prior_report=has_prior,
+                pipeline_in_progress=pipe_in_progress,
+                llm_config=llm_config,
+            )
+
             follow_up_state = {
                 "user_query": payload.user_query,
-                "dataset_id": snapshot_values.get("dataset_id"),
+                "dataset_id": dataset_id,
                 "user_id": user_id,
-                "intent": None,  # clear the stale intent from the previous turn
+                "llm_config": llm_config,
+                "intent": classification.intent,
             }
+
+            if classification.intent == "run_pipeline" and dataset_id:
+                # User wants a new pipeline run (e.g. switching from clustering to regression)
+                dataset_summary = dataset_summary_cache.get(dataset_id)
+                if dataset_summary is None:
+                    dataframe = dataset_service.load_dataset(dataset_id)
+                    dataset_summary = dataset_inspector.inspect(dataframe)
+                    dataset_summary_cache.set(dataset_id, dataset_summary)
+                    runtime_state_store.set_dataset(dataset_id, dataframe)
+
+                plan = await planner_agent.plan(payload.user_query, dataset_summary, llm_config)
+
+                # Deterministic overrides for explicit instructions in user query:
+                from graphs.plan_validation import extract_explicit_target_column
+                explicit_target = extract_explicit_target_column(payload.user_query, dataset_summary)
+                if explicit_target:
+                    plan.target_column = explicit_target
+
+                uq_lower = payload.user_query.lower()
+                if "regression" in uq_lower:
+                    plan.problem_type = "regression"
+                elif "classification" in uq_lower:
+                    plan.problem_type = "classification"
+                elif "cluster" in uq_lower:
+                    plan.problem_type = "clustering"
+                    plan.target_column = None
+                elif "time series" in uq_lower or "forecast" in uq_lower:
+                    plan.problem_type = "time_series"
+
+                # Determine target graph family
+                if plan.problem_type == "clustering":
+                    new_family = "unsupervised"
+                    target_graph = request.app.state.unsupervised_graph
+                elif plan.problem_type == "time_series":
+                    new_family = "time_series"
+                    target_graph = request.app.state.time_series_graph
+                else:
+                    new_family = "supervised"
+                    target_graph = request.app.state.graph
+
+                family_changed = new_family != conversation.pipeline_family
+
+                # Update conversation pipeline family if changed
+                if family_changed:
+                    # Clear the OLD graph's checkpoint so its stale fields
+                    # don't contaminate the new graph family.
+                    old_graph = graph
+                    try:
+                        await old_graph.aupdate_state(
+                            config,
+                            {
+                                "direct_answer": None,
+                                "current_task": None,
+                                "remaining_tasks": [],
+                                "completed_tasks": [],
+                                "_training_job_id": None,
+                                "_tuning_job_id": None,
+                                "_clustering_job_id": None,
+                            },
+                            as_node="direct_answer",
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to clear old graph state: {e}")
+
+                    conversation.pipeline_family = new_family
+                    await session.commit()
+                    logger.info(
+                        "Pipeline family switched %s -> %s for thread %s; "
+                        "old checkpoint cleared.",
+                        conversation.pipeline_family, new_family, payload.thread_id,
+                    )
+                    graph = target_graph
+
+                follow_up_state["analysis_plan"] = plan
+                follow_up_state["target_column"] = plan.target_column
+
             result = await graph.ainvoke(follow_up_state, config=config)
+
 
     except HTTPException:
         # Our own deliberate 400s above — not a graph crash, let them
@@ -227,7 +326,7 @@ async def chat(
             direct_answer=error_message,
         )
 
-    except Exception:
+    except Exception as exc:
         # Any unexpected crash inside the graph (a node raising instead of
         # returning/interrupting cleanly). Without this, the checkpoint is
         # left pointing at whatever interrupt/task was pending when it
@@ -252,13 +351,21 @@ async def chat(
             post_crash_snapshot.values or {}) if post_crash_snapshot else {}
 
         completed_summary = _summarize_completed_stages(post_crash_values)
-        stage_label = STAGE_LABELS.get(
-            attempted_stage, attempted_stage or "a step")
+
+        # If we were resuming an interrupt (e.g. from plan_review), attempted_stage
+        # was snapshot.next[0] == "plan_review", but the failure happened downstream
+        # in whatever task was currently being executed (e.g. visualization or current_task).
+        failed_stage = post_crash_values.get("current_task")
+        if not failed_stage or failed_stage == "plan_review":
+            # Check tasks in post_crash_snapshot
+            failed_stage = attempted_stage
+
+        stage_label = STAGE_LABELS.get(failed_stage, failed_stage or "a step")
 
         error_message = (
             f"Here's what completed before the pipeline ran into a problem:\n\n"
             f"{completed_summary}\n\n"
-            f"❌ {stage_label} failed unexpectedly and the run stopped there. "
+            f"❌ {stage_label} failed unexpectedly ({exc.__class__.__name__}: {str(exc)}) and the run stopped there. "
             f"You can ask about the results above, or try your request again."
         )
 

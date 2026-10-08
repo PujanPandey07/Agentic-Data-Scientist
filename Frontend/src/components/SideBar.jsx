@@ -66,7 +66,7 @@ function LogoutIcon() {
   );
 }
 
-function Sidebar() {
+function Sidebar({ onCloseMobile }) {
   const [conversations, setConversations] = useState([]);
   const { threadId: activeThreadId } = useParams();
   const { logout } = useAuth();
@@ -98,26 +98,42 @@ function Sidebar() {
 
   return (
     <aside
-      className="w-60 shrink-0 h-full flex flex-col"
+      className="w-64 md:w-60 shrink-0 h-full flex flex-col shadow-xl md:shadow-none"
       style={{ background: "#171717", color: "#ececec" }}
     >
-      {/* Logo / App name */}
-      <div className="px-4 pt-5 pb-3 flex items-center gap-2.5">
-        <div
-          className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold shrink-0"
-          style={{ background: "#cc785c", color: "#fff" }}
-        >
-          DS
+      {/* Logo / App name + Mobile Close Button */}
+      <div className="px-4 pt-5 pb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <div
+            className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold shrink-0"
+            style={{ background: "#cc785c", color: "#fff" }}
+          >
+            DS
+          </div>
+          <span className="font-semibold text-sm tracking-tight" style={{ color: "#ececec" }}>
+            AI Data Scientist
+          </span>
         </div>
-        <span className="font-semibold text-sm tracking-tight" style={{ color: "#ececec" }}>
-          AI Data Scientist
-        </span>
+        {onCloseMobile && (
+          <button
+            onClick={onCloseMobile}
+            className="p-1 rounded md:hidden text-neutral-400 hover:text-white transition-colors"
+            aria-label="Close sidebar"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
       </div>
 
       {/* New Chat button */}
       <div className="px-3 pb-3">
         <button
-          onClick={() => navigate("/")}
+          onClick={() => {
+            navigate("/");
+            onCloseMobile?.();
+          }}
           className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
           style={{ background: "#2a2a2a", color: "#ececec" }}
           onMouseEnter={(e) => (e.currentTarget.style.background = "#333")}
@@ -147,6 +163,7 @@ function Sidebar() {
                   <div key={c.thread_id} className="group relative">
                     <Link
                       to={`/c/${c.thread_id}`}
+                      onClick={() => onCloseMobile?.()}
                       className="flex items-center justify-between px-2 py-2 rounded-lg text-sm transition-colors"
                       style={{
                         background: isActive ? "#2a2a2a" : "transparent",

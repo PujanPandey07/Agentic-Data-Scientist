@@ -16,6 +16,22 @@ from schema.visualization_plan import (
 
 logger = logging.getLogger(__name__)
 
+def _resolve_column(col_name: str | None, df_columns) -> str | None:
+    """Return the actual column name in df_columns that matches col_name
+    case-insensitively or via space/underscore standardization, or None if not found."""
+    if not col_name:
+        return None
+    if col_name in df_columns:
+        return col_name
+    
+    col_norm = col_name.strip().lower().replace(" ", "_")
+    for c in df_columns:
+        if c.lower() == col_name.lower():
+            return c
+        if c.strip().lower().replace(" ", "_") == col_norm:
+            return c
+    return None
+
 
 class VisualizationService:
 
@@ -47,6 +63,19 @@ class VisualizationService:
         failures = []
 
         for plan in visualization_plan.visualizations:
+            # Resolve column names flexibly (case-insensitive / snake_case) against dataframe
+            if plan.x_column:
+                resolved_x = _resolve_column(plan.x_column, dataframe.columns)
+                if resolved_x:
+                    plan.x_column = resolved_x
+            if plan.y_column:
+                resolved_y = _resolve_column(plan.y_column, dataframe.columns)
+                if resolved_y:
+                    plan.y_column = resolved_y
+            if plan.group_by:
+                resolved_gb = _resolve_column(plan.group_by, dataframe.columns)
+                if resolved_gb:
+                    plan.group_by = resolved_gb
 
             chart_type = plan.chart_type.value
 

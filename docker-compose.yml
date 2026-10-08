@@ -13,23 +13,27 @@ volumes:
   postgres_data:
   redis_data:
   runtime_cache:
+  shared_outputs:
 
 services:
-
   # ── Postgres ──────────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER:     ${DB_USER}
+      POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB:       ${DB_NAME}
+      POSTGRES_DB: ${DB_NAME}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     # No host-port mapping — only reachable on the internal Docker network
     # (service name "postgres", port 5432).
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-ai_data_scientist}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-ai_data_scientist}",
+        ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -56,21 +60,29 @@ services:
       dockerfile: dockerfile
     image: ai-ds-backend
     restart: unless-stopped
-    env_file: ./Backend/.env          # loads all your secrets / API keys
+    env_file: ./Backend/.env # loads all your secrets / API keys
     environment:
       # Override any localhost URLs from .env with Docker service-name URLs.
       # Using internal ports (5432 / 6379), NOT the host-mapped ones.
-      DATABASE_URL:          "postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}"
-      DATABASE_URL_PSYCOPG:  "postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}"
-      ALEMBIC_DATABASE_URL:  "postgresql+psycopg://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}"
-      REDIS_URL:             "redis://redis:6379/0"
+      DATABASE_URL: "postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}"
+      DATABASE_URL_PSYCOPG: "postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}"
+      ALEMBIC_DATABASE_URL: "postgresql+psycopg://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}"
+      # runtime_state.py reads REDIS_URL (Parquet/dataset path lookups)
+      REDIS_URL: "redis://redis:6379/0"
+      # job_queue.py / worker.py / api/jobs.py read REDIS_HOST + REDIS_PORT
+      # (arq job queue + pub/sub). Without these they fall back to
+      # localhost:6380, which only exists on the host machine, not in Docker.
+      REDIS_HOST: "redis"
+      REDIS_PORT: "6379"
     volumes:
       # Shared Parquet cache — same path as resolved by runtime_state.py:
       # Path(__file__).resolve().parent.parent / "runtime_cache"
       # = /app/app/runtime_cache  (runtime_state.py lives at /app/app/services/)
       - runtime_cache:/app/app/runtime_cache
+      # Shared outputs volume: models and charts saved by worker/api are accessible to both
+      - shared_outputs:/app/app/outputs
     ports:
-      - "8000:8000"     # Expose for local dev / debugging; remove in prod
+      - "8000:8000" # Expose for local dev / debugging; remove in prod
     depends_on:
       postgres:
         condition: service_healthy
@@ -79,24 +91,27 @@ services:
 
   # ── ARQ Worker ────────────────────────────────────────────────────────────
   worker:
-    image: ai-ds-backend        # reuses the same image — no separate build
+    image: ai-ds-backend # reuses the same image — no separate build
     restart: unless-stopped
     # Override the default CMD; entrypoint.sh still runs migrations first
     command: ["arq", "worker.WorkerSettings"]
     env_file: ./Backend/.env
     environment:
-      DATABASE_URL:          "postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}"
-      DATABASE_URL_PSYCOPG:  "postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}"
-      ALEMBIC_DATABASE_URL:  "postgresql+psycopg://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}"
-      REDIS_URL:             "redis://redis:6379/0"
+      DATABASE_URL: "postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}"
+      DATABASE_URL_PSYCOPG: "postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}"
+      ALEMBIC_DATABASE_URL: "postgresql+psycopg://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}"
+      REDIS_URL: "redis://redis:6379/0"
+      REDIS_HOST: "redis"
+      REDIS_PORT: "6379"
     volumes:
       - runtime_cache:/app/app/runtime_cache
+      - shared_outputs:/app/app/outputs
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-      api:           # wait for api so migrations are guaranteed to have run
+      api: # wait for api so migrations are guaranteed to have run
         condition: service_started
 
   # ── Frontend (Vite build → nginx) ─────────────────────────────────────────

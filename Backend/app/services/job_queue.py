@@ -51,6 +51,19 @@ async def publish_job_complete(job_id: str, result: dict) -> None:
     )
 
 
+async def publish_job_failed(job_id: str, error: str) -> None:
+    """Called by the arq worker if a training or tuning job raises an exception.
+    Stores the failure error in Redis and publishes on the pub/sub channel
+    so the SSE stream unblocks immediately and poll node gets the error."""
+    redis = await _get_redis()
+    fail_data = {"error": error, "failed": True}
+    await redis.set(f"job_result:{job_id}", json.dumps(fail_data), ex=3600)
+    await redis.publish(
+        f"job:{job_id}",
+        json.dumps({"status": "failed", "job_id": job_id, "error": error}),
+    )
+
+
 async def check_job_result(job_id: str):
     """Returns {'status': 'complete', 'result': ...} or
     {'status': 'failed', 'error': ...} once the job is done, or None
@@ -58,7 +71,10 @@ async def check_job_result(job_id: str):
     redis = await _get_redis()
     raw = await redis.get(f"job_result:{job_id}")
     if raw is not None:
-        return {"status": "complete", "result": json.loads(raw)}
+        data = json.loads(raw)
+        if isinstance(data, dict) and data.get("failed"):
+            return {"status": "failed", "error": data.get("error", "Unknown job error")}
+        return {"status": "complete", "result": data}
 
     # Only reachable if the job finished (successfully or not) before ever
     # reaching publish_job_complete — e.g. it raised an exception. arq has

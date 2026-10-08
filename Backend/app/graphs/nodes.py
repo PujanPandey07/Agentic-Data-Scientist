@@ -93,7 +93,6 @@ When (and only when) the user is asking for the best/ideal prompt for their data
 """
 
 
-
 def _stringify_llm_content(content) -> str:
     """LangChain's .content is normally a plain string, but some providers
     (seen with gemini-3.5-flash-lite) return a list of content blocks
@@ -426,6 +425,17 @@ async def cleaning_node(state):
         if hasattr(summary, "categorical_columns") and summary.categorical_columns:
             summary.categorical_columns = [cleaning_service.standardize_column_name(
                 c) for c in summary.categorical_columns]
+        # Persist updated (snake_case) summary back to cache so follow-up
+        # messages see correct post-cleaning column names instead of stale
+        # original-cased names.  Without this update, plan_review, the
+        # planner, and direct_answer_node all receive outdated column lists.
+        dataset_id = state.get("dataset_id")
+        if dataset_id:
+            dataset_summary_cache.set(dataset_id, summary)
+            logger.info(
+                "dataset_summary_cache updated with post-cleaning column names "
+                "for dataset_id=%s", dataset_id
+            )
 
     state["cleaning_report"] = report
     # Data changed — any cached train/test split is now stale.
@@ -630,6 +640,13 @@ async def feature_engineering_node(state):
     if problem_type == "clustering":
         return await _feature_engineering_clustering_node(state)
 
+    if problem_type == "time_series":
+        # Time-series feature engineering is lag/window based, performed directly in enqueue_ts_node
+        return advance_execution(
+            state, "feature_engineering",
+            "Time-series temporal features (lags and rolling windows) reserved for sequential pipeline."
+        )
+
     df = _runtime_dataframe(state)
     plan = state.get("feature_engineering_plan")
     target_column = state.get("target_column")
@@ -672,6 +689,16 @@ async def feature_engineering_node(state):
             target_column=target_column,
         )
     )
+
+    # ZERO-FEATURE GUARD: Ensure candidate models have predictor columns
+    feature_cols = [c for c in train_transformed.columns if c != target_column]
+    if not feature_cols:
+        logger.warning("Feature engineering removed all predictor columns. Falling back to original clean numeric columns.")
+        num_cols = train_df.select_dtypes(include="number").columns
+        fallback_cols = [c for c in num_cols if c != target_column]
+        if fallback_cols:
+            train_transformed[fallback_cols] = train_df[fallback_cols]
+            test_transformed[fallback_cols] = test_df[fallback_cols]
 
     # Keep a combined dataframe for downstream state/report compatibility.
     transformed_df = pd.concat(
@@ -933,6 +960,11 @@ async def evaluation_node(state):
     analysis_plan = state.get("analysis_plan")
     dataset_id = state.get("dataset_id")
 
+    if df is None:
+        logger.info("Test split not found in runtime cache for evaluation; reconstructing split.")
+        _ensure_train_test_split(state)
+        _, df = _runtime_train_test(state)
+
     if df is None or target_column is None or model_path is None:
         state["evaluation_report"] = {
             "error": "Missing test dataframe, target column, or trained model path"
@@ -986,8 +1018,56 @@ async def reporting_node(state):
 
     state["final_report"] = report
     analysis_context = analysis_context_builder.build(state, report)
-    analysis_context_cache.set(report["dataset_id"], analysis_context)
+
+    # ── Persist previous-run summary BEFORE overwriting the cache ───────────
+    # Each time the same dataset is analysed with a different algorithm the
+    # old context is lost. We snapshot it into long_term_memory so the
+    # chatbot can answer comparison questions like "how did random forest
+    # compare to XGBoost last time?".
     conversation_id = state.get("conversation_id") or report.get("dataset_id")
+    try:
+        existing_ctx = analysis_context_cache.get(report["dataset_id"])
+        if existing_ctx is not None and conversation_id:
+            prev_conc = existing_ctx.conclusions or {}
+            prev_algo = (
+                prev_conc.get("best_model")
+                or prev_conc.get("best_algorithm")
+                or "unknown"
+            )
+            prev_type = (existing_ctx.dataset or {}).get("problem_type", "unknown")
+            prev_target = (existing_ctx.dataset or {}).get("target_column", "")
+
+            # Build a compact human-readable summary line.
+            score_parts = []
+            for key in ("accuracy", "f1_weighted", "rmse", "r2", "silhouette"):
+                val = prev_conc.get(key)
+                if val is not None:
+                    score_parts.append(f"{key}={val}")
+            score_str = ", ".join(score_parts) if score_parts else "scores not recorded"
+
+            summary_line = (
+                f"Previous run on this dataset — "
+                f"problem type: {prev_type}, "
+                f"target column: {prev_target or 'N/A'}, "
+                f"best model/algorithm: {prev_algo}, "
+                f"scores: {score_str}."
+            )
+
+            await long_term_memory_manager.upsert(
+                conversation_id,
+                "run_history",          # stable topic key — accumulates across runs
+                summary_line,
+                importance=0.65,
+            )
+    except Exception:
+        logger.warning(
+            "Could not store previous-run summary in long_term_memory",
+            exc_info=True,
+        )
+
+    # Overwrite the cache with the latest run context.
+    analysis_context_cache.set(report["dataset_id"], analysis_context)
+
     recommendation = (report.get("conclusions") or {}).get("recommendation")
     if conversation_id and recommendation and recommendation != "N/A":
         await long_term_memory_manager.upsert(
@@ -997,18 +1077,27 @@ async def reporting_node(state):
             importance=0.75,
         )
 
+    # .get() with fallbacks instead of ['best_model']: the shape of
+    # "conclusions" differs by pipeline type, and a missing key used to
+    # raise KeyError here AFTER the report was built, so LangGraph never
+    # committed final_report. Clustering reports have no 'best_model'.
+    conclusions = report.get("conclusions") or {}
+    best_model = (
+        conclusions.get("best_model")
+        or conclusions.get("best_algorithm")
+        or "N/A"
+    )
+
     msg = (
         f"Reporting complete. "
         f"Report saved to {report.get('report_path', 'N/A')}. "
-        f"Best model: {report['conclusions']['best_model']} "
-        f"(accuracy: {report['conclusions'].get('final_accuracy', 'N/A')})"
+        f"Best model: {best_model}"
     )
     return advance_execution(state, "reporting", msg)
-
-
 # ---------------------------------------------------------------------------
 # HYPERPARAMETER TUNING — same enqueue/poll split as training, same reason.
 # ---------------------------------------------------------------------------
+
 
 async def enqueue_tuning_node(state):
     dataset_id = state.get("dataset_id")
@@ -1389,7 +1478,15 @@ async def plan_review_node(state):
     state["direct_answer"] = None
     plan = state.get("analysis_plan")
     constraints = state.get("user_constraints") or {}
-    dataset_summary = state.get("dataset_summary")
+    dataset_id = state.get("dataset_id")
+
+    # Refresh dataset_summary from cache if present so we always validate against
+    # the latest state (e.g. if cleaned columns were standardized)
+    if dataset_id and dataset_summary_cache.get(dataset_id):
+        dataset_summary = dataset_summary_cache.get(dataset_id)
+        state["dataset_summary"] = dataset_summary
+    else:
+        dataset_summary = state.get("dataset_summary")
 
     # Capture the ORIGINAL query once, the first time this node runs —
     # never overwritten again. Every later revision rebuilds from this,
@@ -1431,19 +1528,17 @@ async def plan_review_node(state):
         )
         state["user_query"] = combined_query
 
+        # Use latest dataset_summary for replanning
+        current_summary = state.get("dataset_summary") or (dataset_summary_cache.get(dataset_id) if dataset_id else None)
         new_plan = await planner_agent.plan(
-            combined_query, state.get(
-                "dataset_summary"), state.get("llm_config")
+            combined_query, current_summary, state.get("llm_config")
         )
 
         # Deterministic override: if the user's edit explicitly named a
         # real column as the target, trust that over whatever the LLM
-        # inferred from the combined free text — exact-match string
-        # logic is more reliable here than hoping the general-purpose
-        # planner reliably notices a short instruction buried in a large
-        # prompt (this was the actual cause of the plan_review loop).
+        # inferred from the combined free text.
         explicit_target = extract_explicit_target_column(
-            edit_instruction, state.get("dataset_summary")
+            edit_instruction, current_summary
         )
         if explicit_target:
             new_plan.target_column = explicit_target
@@ -1451,6 +1546,23 @@ async def plan_review_node(state):
                 f"Explicit target column '{explicit_target}' extracted "
                 f"from user edit, overriding planner's inference"
             )
+
+        # Deterministic override for problem_type: if user explicitly specifies
+        # switching or using a specific problem type, override it
+        edit_lower = edit_instruction.lower()
+        if "regression" in edit_lower:
+            new_plan.problem_type = "regression"
+            if "model_selection" not in (new_plan.tasks or []):
+                new_plan.tasks = ["cleaning", "eda", "visualization", "feature_engineering", "model_selection", "hyperparameter_tuning", "evaluation", "reporting"]
+        elif "classification" in edit_lower:
+            new_plan.problem_type = "classification"
+            if "model_selection" not in (new_plan.tasks or []):
+                new_plan.tasks = ["cleaning", "eda", "visualization", "feature_engineering", "model_selection", "hyperparameter_tuning", "evaluation", "reporting"]
+        elif "cluster" in edit_lower:
+            new_plan.problem_type = "clustering"
+            new_plan.target_column = None
+        elif "time series" in edit_lower or "forecast" in edit_lower:
+            new_plan.problem_type = "time_series"
 
         state["analysis_plan"] = new_plan
         state["target_column"] = new_plan.target_column
@@ -1689,7 +1801,8 @@ async def ts_analysis_node(state):
         from schema.time_series_plan import TimeSeriesPlan
         plan = TimeSeriesPlan(
             time_column=time_col or df.columns[0],
-            target_column=state.get("target_column") or df.select_dtypes("number").columns[-1],
+            target_column=state.get("target_column") or df.select_dtypes(
+                "number").columns[-1],
         )
 
     # Validate columns exist in df
@@ -1697,29 +1810,52 @@ async def ts_analysis_node(state):
         detected = time_series_service.detect_time_column(df)
         if detected:
             plan.time_column = detected
+        elif len(df.columns) > 0:
+            plan.time_column = df.columns[0]
 
+    # Resolve target column case/presence
     if plan.target_column not in df.columns:
-        nums = df.select_dtypes("number").columns.tolist()
-        if nums:
-            plan.target_column = nums[-1]
+        # Try case-insensitive / normalized lookup
+        norm_map = {c.lower().replace(" ", "_"): c for c in df.columns}
+        target_norm = (plan.target_column or "").lower().replace(" ", "_")
+        if target_norm in norm_map:
+            plan.target_column = norm_map[target_norm]
+        else:
+            nums = df.select_dtypes("number").columns.tolist()
+            if nums:
+                plan.target_column = nums[-1]
+            else:
+                other_cols = [c for c in df.columns if c != plan.time_column]
+                plan.target_column = other_cols[-1] if other_cols else (df.columns[0] if len(df.columns) > 0 else "target")
 
     # 2. Parse datetime column
     try:
-        df[plan.time_column] = pd.to_datetime(df[plan.time_column], infer_datetime_format=True)
-        df = df.sort_values(plan.time_column).reset_index(drop=True)
-        runtime_state_store.set_dataset(dataset_id, df)
+        if plan.time_column in df.columns:
+            df[plan.time_column] = pd.to_datetime(
+                df[plan.time_column], errors="coerce"
+            )
+            df = df.sort_values(plan.time_column).reset_index(drop=True)
+            runtime_state_store.set_dataset(dataset_id, df)
     except Exception as exc:
         logger.warning("Could not parse time column: %s", exc)
 
     # 3. Stationarity test
-    series = df[plan.target_column].dropna() if plan.target_column in df.columns else pd.Series(dtype=float)
+    if plan.target_column in df.columns:
+        # Ensure series is numeric
+        df[plan.target_column] = pd.to_numeric(df[plan.target_column], errors="coerce")
+        runtime_state_store.set_dataset(dataset_id, df)
+        series = df[plan.target_column].dropna()
+    else:
+        series = pd.Series(dtype=float)
     _, is_stationary, n_diffs = time_series_service.make_stationary(series)
     plan.is_stationary = is_stationary
 
     # 4. Decomposition
-    decomp = time_series_service.decompose(
-        df, plan.time_column, plan.target_column, plan.frequency
-    )
+    decomp = {}
+    if plan.time_column in df.columns and plan.target_column in df.columns:
+        decomp = time_series_service.decompose(
+            df, plan.time_column, plan.target_column, plan.frequency
+        )
     plan.seasonality_detected = decomp.get("seasonality_detected", False)
     plan.trend_detected = decomp.get("trend_detected", False)
 
@@ -1754,6 +1890,11 @@ async def ts_analysis_node(state):
 
 async def ts_model_selection_planner_node(state):
     """LLM picks the best lag config and model for forecasting."""
+    # Ensure ts_analysis has executed and produced ts_plan and ts_analysis_report
+    if state.get("ts_plan") is None:
+        logger.info("ts_plan missing in ts_model_selection_planner_node; executing ts_analysis_node inline first.")
+        await ts_analysis_node(state)
+
     ts_plan_dict = state.get("ts_plan")
     ts_analysis_report = state.get("ts_analysis_report") or {}
 
@@ -1813,7 +1954,8 @@ async def enqueue_ts_node(state):
             df, ts_plan.target_column, lags, rolling, ts_plan.time_column
         )
     except Exception as exc:
-        state["ts_training_report"] = {"error": f"Feature engineering failed: {exc}"}
+        state["ts_training_report"] = {
+            "error": f"Feature engineering failed: {exc}"}
         state["_ts_job_id"] = None
         return advance_execution(state, "model_selection", f"TS feature error: {exc}", status="skipped")
 
@@ -1831,7 +1973,8 @@ async def enqueue_ts_node(state):
     )
 
     if not feature_cols:
-        state["ts_training_report"] = {"error": "No lag features generated — too few rows?"}
+        state["ts_training_report"] = {
+            "error": "No lag features generated — too few rows?"}
         state["_ts_job_id"] = None
         return advance_execution(state, "model_selection", "No lag features", status="skipped")
 
@@ -1868,7 +2011,8 @@ async def ts_evaluation_node(state):
     dataset_id = state.get("dataset_id")
 
     if "error" in ts_training or not ts_plan_dict:
-        state["ts_evaluation_report"] = {"error": "Training did not complete successfully"}
+        state["ts_evaluation_report"] = {
+            "error": "Training did not complete successfully"}
         return advance_execution(state, "evaluation", "TS evaluation skipped", status="skipped")
 
     from schema.time_series_plan import TimeSeriesPlan
@@ -1940,4 +2084,3 @@ def route_task_ts(state) -> str:
         "reporting":             "reporting",
     }
     return _MAP.get(task, END)
-

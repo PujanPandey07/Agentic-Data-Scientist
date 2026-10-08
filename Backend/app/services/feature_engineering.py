@@ -25,11 +25,12 @@ class FeatureEngineeringService:
         df: pd.DataFrame,
         plan: FeatureEngineeringPlan,
         target_column: str | None = None,
+        protected_columns: list[str] | None = None,
     ) -> tuple[pd.DataFrame, dict]:
         """Execute a feature engineering plan step-by-step.
 
-        target_column, if given, is a hard guard: no step is allowed to
-        touch it, regardless of what the LLM-generated plan says.
+        target_column and protected_columns are hard guards: no step is allowed to
+        drop them, regardless of what the LLM-generated plan says.
         """
 
         original_shape = df.shape
@@ -69,16 +70,14 @@ class FeatureEngineeringService:
         # Execute each step in order
         for step in plan.steps:
             safe_step, target_excluded = self._strip_target_column(
-                step, target_column
+                step, target_column, protected_columns
             )
 
             if target_excluded:
                 guard_trigger_count += 1
                 logger.warning(
-                    f"Step '{step.action}' named target column "
-                    f"'{target_column}' in its columns — excluded it before "
-                    f"execution to prevent data leakage. Original columns: "
-                    f"{step.columns}, sanitized: {safe_step.columns}"
+                    f"Step '{step.action}' named target/protected column in its columns — "
+                    f"excluded it before execution. Original: {step.columns}, sanitized: {safe_step.columns}"
                 )
 
             try:
@@ -161,6 +160,7 @@ class FeatureEngineeringService:
         test_df: pd.DataFrame,
         plan: FeatureEngineeringPlan,
         target_column: str | None = None,
+        protected_columns: list[str] | None = None,
     ) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
         """Apply feature engineering using train-fitted transformations.
 
@@ -213,15 +213,14 @@ class FeatureEngineeringService:
         # Execute each step in order
         for step in plan.steps:
             safe_step, target_excluded = self._strip_target_column(
-                step, target_column
+                step, target_column, protected_columns
             )
 
             if target_excluded:
                 guard_trigger_count += 1
 
                 logger.warning(
-                    f"Step '{step.action}' named target column "
-                    f"'{target_column}' — excluded before execution."
+                    f"Step '{step.action}' named target/protected column — excluded before execution."
                 )
 
             try:
@@ -946,19 +945,21 @@ class FeatureEngineeringService:
         self,
         step: FeatureEngineeringStep,
         target_column: str | None,
+        protected_columns: list[str] | None = None,
     ) -> tuple[FeatureEngineeringStep, bool]:
-        """Return a sanitized copy of the step with target_column removed."""
+        """Return a sanitized copy of the step with target_column and protected_columns removed from destructive actions."""
+        protected = set()
+        if target_column:
+            protected.add(target_column)
+        if protected_columns:
+            protected.update(protected_columns)
 
-        if (
-            not target_column
-            or target_column not in step.columns
-        ):
+        if not protected or not any(c in protected for c in step.columns):
             return step, False
 
         safe_columns = [
-            c
-            for c in step.columns
-            if c != target_column
+            c for c in step.columns
+            if c not in protected
         ]
 
         return (

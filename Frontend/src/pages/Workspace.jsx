@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import axiosInstance, { getAccessToken, API_BASE } from "../api/axiosstance";
 import ArtifactPanel from "../components/ArtifactPanel";
 import { cleanMarkdown, formatAnalysisAsMarkdown } from "../utils/FormatReport";
+import { useLayout } from "../context/LayoutContext";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -586,11 +587,11 @@ function DecisionBar({ onApprove, onReject, onEdit, loading }) {
   }
 
   return (
-    <div className="w-full max-w-2xl mx-auto flex items-center gap-2">
+    <div className="w-full max-w-2xl mx-auto flex flex-wrap sm:flex-nowrap items-center gap-2">
       <button
         onClick={onApprove}
         disabled={loading}
-        className="flex-1 py-2 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+        className="flex-1 min-w-[120px] py-2 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
         style={{ background: "#cc785c", color: "white" }}
         onMouseEnter={(e) => (e.currentTarget.style.background = "#b86647")}
         onMouseLeave={(e) => (e.currentTarget.style.background = "#cc785c")}
@@ -600,7 +601,7 @@ function DecisionBar({ onApprove, onReject, onEdit, loading }) {
       <button
         onClick={() => setShowEdit(true)}
         disabled={loading}
-        className="flex-1 py-2 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+        className="flex-1 min-w-[120px] py-2 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
         style={{ background: "#f0f0f0", color: "#1a1a1a" }}
         onMouseEnter={(e) => (e.currentTarget.style.background = "#e5e5e5")}
         onMouseLeave={(e) => (e.currentTarget.style.background = "#f0f0f0")}
@@ -610,7 +611,7 @@ function DecisionBar({ onApprove, onReject, onEdit, loading }) {
       <button
         onClick={onReject}
         disabled={loading}
-        className="px-4 py-2 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+        className="w-full sm:w-auto px-4 py-2 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
         style={{ background: "#fff0f0", color: "#c0392b", border: "1px solid #fecaca" }}
         onMouseEnter={(e) => (e.currentTarget.style.background = "#fee2e2")}
         onMouseLeave={(e) => (e.currentTarget.style.background = "#fff0f0")}
@@ -848,23 +849,29 @@ function Workspace() {
     lastMsg?.type === "interrupt" &&
     lastMsg.interrupt?.type === "job_status";
 
-  return (
-    // CHANGED: the outermost element is now a ROW. Before, the report panel was a
-    // child of a column, so it stacked below the input bar and got clipped by
-    // overflow-hidden. As a row, the chat and the report sit side by side and the
-    // panel gets the full window height, so its own scrolling and footer work.
-    <div className="flex-1 flex flex-row h-full overflow-hidden" style={{ background: "#f7f7f5" }}>
+  const { toggleSidebar } = useLayout();
 
-      {/* CHANGED: this is the old root div, now only the chat column.
-          min-w-0 lets it shrink when the report panel opens instead of overflowing. */}
+  return (
+    // The outermost element is a ROW on desktop. On mobile, ArtifactPanel slides in as an overlay.
+    <div className="flex-1 flex flex-row h-full overflow-hidden relative" style={{ background: "#f7f7f5" }}>
+
+      {/* Chat column */}
       <div className="flex-1 min-w-0 flex flex-col h-full overflow-hidden">
         {/* Header */}
         <div
-          className="shrink-0 flex items-center justify-between px-4 py-3"
+          className="shrink-0 flex items-center justify-between px-3 md:px-4 py-3"
           style={{ borderBottom: "1px solid #e8e8e8", background: "white" }}
         >
-          <div className="flex-1 min-w-0">
-            {/* Could show conversation title here */}
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              onClick={toggleSidebar}
+              className="p-1.5 rounded-lg md:hidden text-gray-600 hover:text-black hover:bg-gray-100 transition-colors"
+              aria-label="Open sidebar"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
           </div>
           <div className="flex items-center gap-2">
             {reportReady && !awaitingDecision && (

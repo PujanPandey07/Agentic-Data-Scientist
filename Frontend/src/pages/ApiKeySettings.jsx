@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import axiosInstance from "../api/axiosstance";
+import { useLayout } from "../context/LayoutContext";
 
 const PROVIDER_LABELS = {
   openai: "OpenAI",
@@ -237,16 +238,32 @@ function ApiKeySettings() {
   const keyEnteredButUnverified = apiKey.trim().length > 0 && liveModels === null && !previewError;
   const switchModelOptions = switchModels ?? (availableModels[status?.provider] || []);
 
+  const { toggleSidebar } = useLayout();
+
   return (
     <div className="h-full overflow-y-auto">
-    <div className="max-w-xl mx-auto px-6 py-12">
-      <h1 className="font-serif text-2xl text-ink mb-2">Your AI model</h1>
-      <p className="text-muted text-sm mb-6">
-        By default, everyone shares a limited free model. Add your own API key
-        for OpenAI, Anthropic, or Gemini to avoid shared rate limits — it's
-        used only for your own analyses, and your key is never shown again
-        after saving.
-      </p>
+      {/* Mobile Top Bar */}
+      <div className="md:hidden flex items-center px-4 py-3 border-b border-gray-200 bg-white">
+        <button
+          onClick={toggleSidebar}
+          className="p-1.5 rounded-lg text-gray-600 hover:text-black hover:bg-gray-100 transition-colors"
+          aria-label="Open sidebar"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+        <span className="ml-3 font-medium text-sm text-gray-800">Settings</span>
+      </div>
+
+      <div className="max-w-xl mx-auto px-4 md:px-6 py-6 md:py-12">
+        <h1 className="font-serif text-2xl text-ink mb-2">Your AI model</h1>
+        <p className="text-muted text-sm mb-6">
+          By default, everyone shares a limited free model. Add your own API key
+          for OpenAI, Anthropic, or Gemini to avoid shared rate limits — it's
+          used only for your own analyses, and your key is never shown again
+          after saving.
+        </p>
 
       {errorMsg && (
         <p className="text-clay text-sm mb-4 bg-clay/10 border border-clay/30 rounded-md px-3 py-2">
